@@ -38,15 +38,16 @@ reps <- 500
 trueintercept <- -1.39 #corresponds to prevalence of 0.2 for the average person
 
 #We pick a sample size of 200
-n <- 200
+n_train <- 200;
+n_test <- 1e3;
 
 #Now we declare our covariate values--these are different for each scenario. Depending on which scenario
 #you want, remove the comment symbols in front of the statements. Truebeta_known are the established covariates,
 #while truebeta_myst are the unestablished covariates.
 
 #Scenario 1A
-truebeta_known <- rep(0.26,10)
-truebeta_myst <- rep(0,30)
+truebeta_known <- rep(0.26,10);
+truebeta_myst <- rep(0,30);
 
 #Scenario 1B
 #truebeta_known <- rep(0.2,10)
@@ -97,43 +98,47 @@ which_set1 = 1:p1;
 p2 = length(truebeta_myst); 
 which_set2 = p1 + (1:p2); 
 truebetas = c(truebeta_known,truebeta_myst); #concatenate 
+abs_truebetas = abs(truebetas);
+small_number = .Machine$double.eps^0.5;
 
 #And for future use, we will find the indices of the true/false and unknown/known covariates:
-trueind <- which(truebetas != 0)
-trueeind <- which(truebetas[which_set1] != 0)
-trueuind <- which(truebetas[which_set2] != 0) + p1
+trueind <- which(abs_truebetas > small_number)
+trueeind <- which(abs_truebetas[which_set1] > small_number)
+trueuind <- which(abs_truebetas[which_set2] > small_number) + p1
 
-falseind <- which(truebetas == 0)
-falseestind <- unique(c(which_set1, which(truebetas==0)))
-falseunind <- unique(c(which_set2, which(truebetas==0)))
+falseind <- which(abs_truebetas < small_number)
+falseestind <- intersect(which_set1, which(abs_truebetas < small_number));
+falseunind <- intersect(which_set2, which(abs_truebetas < small_number));
 
 #We put the compound symmetric correlation here:
 pairwise_correlation = 0.2;
+chol_var = chol(diag(1 - pairwise_correlation,(p1+p2)) + pairwise_correlation);
 
-#Now we will simulate the design matrices:
-myx <- as.list(rep(1,reps))
-all_x <- mclapply(myx, makex, mc.preschedule = TRUE, mc.set.seed = TRUE,
+#Now we will simulate the design matrices (both training and testing at once)
+myx = replicate(reps, n_train + n_test, simplify=FALSE)
+
+all_x <- mclapply(myx, makex, p = p1 + p2, chol_var = chol_var,
+                  mc.preschedule = TRUE, mc.set.seed = TRUE,
                   mc.silent = TRUE, mc.cores = no_cores, mc.cleanup = TRUE)
 
 #Now we will simulate the outcome vector and append it to the design matrix:
-bigdesign <- mclapply(all_x, makey, mc.preschedule = TRUE, mc.set.seed = TRUE,
+bigdesign <- mclapply(all_x, makey, trueintercept = trueintercept, truebetas = truebetas, 
+                      mc.preschedule = TRUE, mc.set.seed = TRUE,
                       mc.silent = TRUE, mc.cores = no_cores, mc.cleanup = TRUE)
 
-#And finally, we will simulate a test dataset for AUC calculations:
-testsetx <- matrix(rnorm(n * (p1 + p2)), nrow = n)%*%chol(diag(1 - pairwise_correlation,(p1+p2)) + pairwise_correlation)
-testsety <- rbinom(n, 1, expit(trueintercept + testsetx%*%truebetas))
-
 #We set penalized regression parameters: our alpha sequence, number of CV replicates, and number of folds:
-alpha_seq = c(0.1, 0.5, 0.9)
+alpha_seq = c(0.1, 0.5, 0.9);
 n_cv_rep = 25;
 n_folds = 5;
 
 #Now running the multi-step net:
-mynet <- mclapply(bigdesign,donet,mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+mynet <- mclapply(bigdesign,donet,n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_cv_rep = n_cv_rep, n_folds = n_folds,
+                  mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                   mc.cores=no_cores,mc.cleanup=TRUE)
 
 #And the SGL:
-mysgl <- mclapply(bigdesign,dosgl,mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+mysgl <- mclapply(bigdesign,dosgl,n_train = n_train, p1 = p1, p2 = p2, n_cv_rep = n_cv_rep, n_folds = n_folds,
+                  mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                   mc.cores=no_cores,mc.cleanup=TRUE)
 
 #We would want to save this workspace for each scenario

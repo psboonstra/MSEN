@@ -20,358 +20,262 @@
 expit = function(x) {1/(1+exp(-x));}
 
 #makex simulates a design matrix according to our preset coefficient, sample size, and correlation values:
-makex <- function(x) {x <- x*matrix(rnorm(n * (p1 + p2)), nrow = n)%*%chol(diag(1 - pairwise_correlation,(p1+p2)) + pairwise_correlation)
+makex <- function(n,p,chol_var) {
+  matrix(rnorm(n * p), nrow = n)%*%chol_var;
 }
 
 #makey creates an outcome matrix based on the design matrices simulated above, and appends it to the design
 #matrix:
-makey <- function(design) {xy <- cbind(design, rbinom(n, 1, expit(trueintercept + design%*%truebetas)));}
+makey <- function(design, trueintercept, truebetas) {
+  cbind(design, y = rbinom(nrow(design), 1, expit(trueintercept + design%*%truebetas)));
+}
 
 ## PART 2: FUNCTIONS TO PERFORM PENALIZED REGRESSION ON SIMULATED DATA
 
 #donet performs all 5 versions of the elastic net. It fits the following 5 models:
-    #Model 1: phi_1 = 0, phi_2 = 1
-    #Model 2: phi_1 = 1/16, phi_2 = 1
-    #Model 3: phi_1 = 1/2, phi_2 = 1
-    #Model 4: phi_1 = 1, phi_2 = 1
-    #Model 5: phi_1 = 1, phi_2 = 0
+#Model 1: phi_1 = 0, phi_2 = 1
+#Model 2: phi_1 = 1/16, phi_2 = 1
+#Model 3: phi_1 = 1/2, phi_2 = 1
+#Model 4: phi_1 = 1, phi_2 = 1
+#Model 5: phi_1 = 1, phi_2 = 0
 #And then produces the final models:
-  #Elastic net: Model 4
-  #IPF-EN: best of models 2, 3, and 4
-  #IPF-EN + Zero: best of models 1, 2, 3, and 4
-  #IPF-EN + Infinity: best of models 2, 3, 4, and 5
-  #MSN: best of models 1, 2, 3, 4, and 5
+#Elastic net: Model 4
+#IPF-EN: best of models 2, 3, and 4
+#IPF-EN + Zero: best of models 1, 2, 3, and 4
+#IPF-EN + Infinity: best of models 2, 3, 4, and 5
+#MSN: best of models 1, 2, 3, 4, and 5
 
 #the input is a design matrix and other variables used in multistepnet_sim.R
 
-donet <- function(x){
+donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
+  stopifnot(p1 + p2 == ncol(dat) - 1);
+  stopifnot(n_train < nrow(dat));
   #We separate out the design matrix and outcome vector:
-  all_x <- x[,1:(p1+p2)]
-  y <- x[,(p1+p2+1)]
+  n_test = nrow(dat) - n_train;
   
-  #First, we initialize values to hold the deviance and lambda sequence for each
-  #combination of alpha and phi (3 alphas and 5 phis)
-  for(j in 1:length(alpha_seq)) {#initialize values
-    assign(paste0("alpha",j,"_model1_dev"),0);
-    assign(paste0("alpha",j,"_model2_dev"),0);
-    assign(paste0("alpha",j,"_model3_dev"),0);
-    assign(paste0("alpha",j,"_model4_dev"),0);
-    assign(paste0("alpha",j,"_model5_dev"),0);
-    assign(paste0("alpha",j,"_model1_lambda_seq"),NULL);
-    assign(paste0("alpha",j,"_model2_lambda_seq"),NULL);
-    assign(paste0("alpha",j,"_model3_lambda_seq"),NULL);
-    assign(paste0("alpha",j,"_model4_lambda_seq"),NULL);
-    assign(paste0("alpha",j,"_model5_lambda_seq"),NULL);
-  }
+  y_train <- factor(1 * dat[1:n_train,"y"]);
+  x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
+  x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
+  y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
   
   #We standardize our design matrix:
-  center_all_x = apply(all_x,2,mean,na.rm=T);
-  scale_all_x = apply(all_x,2,sd,na.rm=T);
-  std_all_x = scale(all_x,center = center_all_x, scale = scale_all_x);
-  
-  #Because glmnet allows us to assign folds, we assign observations to folds to ensure
-  #consistency across imputations. 
-  foldid = matrix(NA,length(y),n_cv_rep);
-  for(i in 1:n_cv_rep) {
-    foldid[,i] = sample(rep(1:n_folds,length = length(y)));
-  }
+  center_x_train = apply(x_train,2,mean,na.rm=T);
+  scale_x_train = apply(x_train,2,sd,na.rm=T);
+  std_x_train = scale(x_train,center = center_x_train, scale = scale_x_train);
+  #We standardize our simulated test set to the same standard:
+  std_x_test = scale(x_test,center = center_x_train, scale = scale_x_train);
   
   #We now fit our 5 differently-penalized models for each of our 11 values of alpha for each of our 
   #cross-validated replicates:
+  #Model 1: phi_1 = 0, phi_2 = 1 (no penalization on established and full on unestablished)
+  penalties = rbind(penalty1 = c(rep(0,p1),rep(1,p2)),
+                    #Model 2 (phi_1 = 1/16, phi_2 = 1, or small penalization on the established covariates)
+                    penalty2 = c(rep(1/16,p1),rep(1,p2)),
+                    #Model3 (Phi_1 = 1/2, Phi_2 = 1, or double penalization on the unestablished covariates)
+                    penalty3 = c(rep(1/2,p1),rep(1,p2)),
+                    #Model 4: phi_1 = 1, phi_2 = 1, or no penalization on the established covariates
+                    penalty4 = c(rep(1,p1),rep(1,p2)),
+                    #Model5 (Phi_1 = 1, Phi_2 = 0, or infinite penalization on the unestablished covariates)
+                    penalty5 = c(rep(1,p1),rep(Inf,p2)));
+  penalty_exclude = 
+    cbind(ipf_zero = c(1, 1, 1, 1, Inf), 
+          ipf_en = c(Inf, 1, 1, 1, Inf), 
+          en = c(Inf, Inf, Inf, 1, Inf), 
+          ipf_inf = c(Inf, 1, 1, 1, 1), 
+          ms = c(1, 1, 1, 1, 1));
+  n_penalties = nrow(penalties);
   
+  #First, we initialize values to hold the deviance and lambda sequence for each
+  #combination of alpha and phi (3 alphas and 5 phis)
+  n_alphas = length(alpha_seq);
+  store_dev = 
+    store_lambda_seq = vector("list",n_penalties);
+  for(k in 1:n_penalties) {#initialize values
+    store_dev[[k]] = 
+      store_lambda_seq[[k]] = vector("list",n_alphas);
+    store_dev[[k]][1:n_alphas] = 0;
+    names(store_dev[[k]]) = 
+      names(store_lambda_seq[[k]]) = alpha_seq;
+  }
+  
+  #Because glmnet allows us to assign folds, we assign observations to folds to ensure
+  #consistency across imputations. 
+  foldid = matrix(NA,n_train,n_cv_rep);
   for(i in 1:n_cv_rep) {
-    for(j in 1:length(alpha_seq)) {
+    foldid[,i] = sample(rep(1:n_folds,length = n_train));
+  }
   
-      #Model 1: phi_1 = 0, phi_2 = 1 (no penalization on established and full on unestablished)
-      penalize1 <- rep(1,(p1+p2))
-      penalize1[1:p1] <- 0
-      penalize1[(p1+1):(p1+p2)] <- 1
-      assign(paste0("fitted1_mod",j),
-             cv.glmnet(x = std_all_x, 
-                       y = factor(1*y),
-                       standardize = F,
-                       family = "binomial",
-                       alpha = alpha_seq[j],
-                       foldid = foldid[,i],
-                       lambda = get(paste0("alpha",j,"_model1_lambda_seq")),
-                       penalty.factor = penalize1,
-                       keep = T));
-      assign(paste0("alpha",j,"_model1_dev"),get(paste0("alpha",j,"_model1_dev")) + get(paste0("fitted1_mod",j))$cvm/n_cv_rep);
-      if(is.null(get(paste0("alpha",j,"_model1_lambda_seq")))) {assign(paste0("alpha",j,"_model1_lambda_seq"),get(paste0("fitted1_mod",j))$lambda);}
-      fitted_prob = get(paste0("fitted1_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model1_lambda_seq")))];
-  
-      #Model 2 (phi_1 = 1/16, phi_2 = 1, or small penalization on the established covariates)
-      penalize2 <- rep(1,(p1+p2))
-      penalize2[1:p1] <- (1/16)
-      penalize2[(p1+1):(p1+p2)] <- 1
-      assign(paste0("fitted2_mod",j),
-             cv.glmnet(x = std_all_x, 
-                       y = factor(1*y),
-                       standardize = F,
-                       family = "binomial",
-                       alpha = alpha_seq[j],
-                       foldid = foldid[,i],
-                       lambda = get(paste0("alpha",j,"_model2_lambda_seq")),
-                       penalty.factor = penalize2,
-                       keep = T));
-      assign(paste0("alpha",j,"_model2_dev"),get(paste0("alpha",j,"_model2_dev")) + get(paste0("fitted2_mod",j))$cvm/n_cv_rep);
-      if(is.null(get(paste0("alpha",j,"_model2_lambda_seq")))) {assign(paste0("alpha",j,"_model2_lambda_seq"),get(paste0("fitted2_mod",j))$lambda);}
-      fitted_prob = get(paste0("fitted2_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model2_lambda_seq")))];
-      
-      #Model3 (Phi_1 = 1/2, Phi_2 = 1, or double penalization on the unestablished covariates)
-      penalize3 <- rep(1,(p1+p2))
-      penalize3[1:p1] <- 1/2
-      penalize3[(p1+1):(p1+p2)] <- 1
-      assign(paste0("fitted3_mod",j),
-             cv.glmnet(x = std_all_x, 
-                       y = factor(1*y),
-                       standardize = F,
-                       family = "binomial",
-                       alpha = alpha_seq[j],
-                       foldid = foldid[,i],
-                       lambda = get(paste0("alpha",j,"_model3_lambda_seq")),
-                       penalty.factor = penalize3,
-                       keep = T));
-      assign(paste0("alpha",j,"_model3_dev"),get(paste0("alpha",j,"_model3_dev")) + get(paste0("fitted3_mod",j))$cvm/n_cv_rep);
-      if(is.null(get(paste0("alpha",j,"_model3_lambda_seq")))) {assign(paste0("alpha",j,"_model3_lambda_seq"),get(paste0("fitted3_mod",j))$lambda);}
-      fitted_prob = get(paste0("fitted3_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model3_lambda_seq")))];
-   
-      #Model 4: phi_1 = 1, phi_2 = 1, or no penalization on the established covariates
-      assign(paste0("fitted4_mod",j),
-             cv.glmnet(x = std_all_x, 
-                       y = factor(1*y),
-                       standardize = F,
-                       family = "binomial",
-                       alpha = alpha_seq[j],
-                       foldid = foldid[,i],
-                       lambda = get(paste0("alpha",j,"_model4_lambda_seq")),
-                       keep = T));
-      assign(paste0("alpha",j,"_model4_dev"),get(paste0("alpha",j,"_model4_dev")) + get(paste0("fitted4_mod",j))$cvm/n_cv_rep);
-      if(is.null(get(paste0("alpha",j,"_model4_lambda_seq")))) {assign(paste0("alpha",j,"_model4_lambda_seq"),get(paste0("fitted4_mod",j))$lambda);}
-      fitted_prob = get(paste0("fitted4_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model4_lambda_seq")))];
-   
-      #Model5 (Phi_1 = 1, Phi_2 = 0, or infinite penalization on the unestablished covariates)
-      assign(paste0("fitted5_mod",j),
-             cv.glmnet(x = std_all_x[,which_set1,drop=F],
-                       y = factor(1*y),
-                       standardize = F,
-                       family = "binomial",
-                       alpha = alpha_seq[j],
-                       foldid = foldid[,i],
-                       lambda = get(paste0("alpha",j,"_model5_lambda_seq")),
-                       keep = T));
-      assign(paste0("alpha",j,"_model5_dev"),get(paste0("alpha",j,"_model5_dev")) + get(paste0("fitted5_mod",j))$cvm/n_cv_rep);
-      if(is.null(get(paste0("alpha",j,"_model5_lambda_seq")))) {assign(paste0("alpha",j,"_model5_lambda_seq"),get(paste0("fitted5_mod",j))$lambda);}
-      fitted_prob = get(paste0("fitted5_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model5_lambda_seq")))];
-      
+  for(k in 1:n_penalties) {
+    finite_penalties = which(penalties[k,] < Inf);
+    for(i in 1:n_cv_rep) {
+      for(j in 1:n_alphas) {
+        curr_fit = cv.glmnet(x = std_x_train[,finite_penalties,drop=F], 
+                             y = y_train,
+                             standardize = F,
+                             family = "binomial",
+                             alpha = alpha_seq[j],
+                             foldid = foldid[,i],
+                             lambda = store_lambda_seq[[k]][[j]],
+                             penalty.factor = penalties[k,finite_penalties],
+                             keep = T);
+        store_dev[[k]][[j]] = store_dev[[k]][[j]] + curr_fit$cvm/n_cv_rep;
+        if(is.null(store_lambda_seq[[k]][[j]])) {store_lambda_seq[[k]][[j]] = curr_fit$lambda;}
+        #assign(paste0("alpha",j,"_model",k,"_fitted_prob"), get(paste0("fitted",k,"_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model",k,"_lambda_seq")))]);
+      } 
     }
-    cat(i,"\n");
+    cat(k,"\n");
   }
   
-  #We now initialize a 5 x 3 matrix to hold the deviance values for each combination of phi and alpha--15 models total--
-  #and then fill it with the deviance values obtained above
-  
-  best_dev_all = matrix(NA,5,length(alpha_seq), dimnames=list(paste0("Penalty",1:5),paste0("alpha",alpha_seq)));
-  for(j in 1:length(alpha_seq)) {
-    best_dev_all["Penalty1",j] = get(paste0("alpha",j,"_model1_dev"))[which.min(get(paste0("alpha",j,"_model1_dev")))];
-    best_dev_all["Penalty2",j] = get(paste0("alpha",j,"_model2_dev"))[which.min(get(paste0("alpha",j,"_model2_dev")))];
-    best_dev_all["Penalty3",j] = get(paste0("alpha",j,"_model3_dev"))[which.min(get(paste0("alpha",j,"_model3_dev")))];
-    best_dev_all["Penalty4",j] = get(paste0("alpha",j,"_model4_dev"))[which.min(get(paste0("alpha",j,"_model4_dev")))];
-    best_dev_all["Penalty5",j] = get(paste0("alpha",j,"_model5_dev"))[which.min(get(paste0("alpha",j,"_model5_dev")))];
-  }
-  
-  #identify the best (smallest) deviance across all values of alpha for each penalty value; this is the selected alpha
-  #for each phi
-  which_alpha_all = apply(best_dev_all[c("Penalty1","Penalty2","Penalty3","Penalty4","Penalty5"),],1,which.min);
-  #
-  #For each penalty, we use the best alpha to obtain that alpha's lambdaseq, and then choose the best lambda for that alpha 
-  model1_lambda_seq = get(paste0("alpha",which_alpha_all["Penalty1"],"_model1_lambda_seq"));
-  model1_which_lambda = which.min(get(paste0("alpha",which_alpha_all["Penalty1"],"_model1_dev")));
-  model1_lambda_select = model1_lambda_seq[model1_which_lambda];
-  #
-  model2_lambda_seq = get(paste0("alpha",which_alpha_all["Penalty2"],"_model2_lambda_seq"));
-  model2_which_lambda = which.min(get(paste0("alpha",which_alpha_all["Penalty2"],"_model2_dev")));
-  model2_lambda_select = model2_lambda_seq[model2_which_lambda];
-  #
-  model3_lambda_seq = get(paste0("alpha",which_alpha_all["Penalty3"],"_model3_lambda_seq"));
-  model3_which_lambda = which.min(get(paste0("alpha",which_alpha_all["Penalty3"],"_model3_dev")));
-  model3_lambda_select = model3_lambda_seq[model3_which_lambda];
-  #
-  model4_lambda_seq = get(paste0("alpha",which_alpha_all["Penalty4"],"_model4_lambda_seq"));
-  model4_which_lambda = which.min(get(paste0("alpha",which_alpha_all["Penalty4"],"_model4_dev")));
-  model4_lambda_select = model4_lambda_seq[model4_which_lambda];
-  #
-  model5_lambda_seq = get(paste0("alpha",which_alpha_all["Penalty5"],"_model5_lambda_seq"));
-  model5_which_lambda = which.min(get(paste0("alpha",which_alpha_all["Penalty5"],"_model5_dev")));
-  model5_lambda_select = model5_lambda_seq[model5_which_lambda];
-  
-  #We standardize our simulated test set:
-  std_test = scale(testsetx,center = center_all_x, scale = scale_all_x);
+  which_best_alpha = apply(matrix(rapply(store_dev, min), nrow = n_penalties, byrow = T), 1, which.min);
+  best_lambda_seq = mapply("[[",store_lambda_seq,which_best_alpha);
+  best_dev = mapply("[[",store_dev,which_best_alpha);
+  which_best_lambda = unlist(lapply(best_dev, which.min));
+  best_lambda = mapply("[",best_lambda_seq,which_best_lambda)
   
   #And now we fit the final models using our optimal values of lambda and alpha for each penalty type:
-  model1_fitted_mod = glmnet(x = std_all_x, 
-                             y = factor(1*y),
-                             standardize = F,
-                             family = "binomial",
-                             alpha = alpha_seq[which_alpha_all["Penalty1"]],
-                             lambda = model1_lambda_seq,
-                             penalty.factor = penalize1);
-
-  coef1 = coef(model1_fitted_mod)[,model1_which_lambda];
-  mycoef1 <- coef1[-1]/scale_all_x;
-  myfit1 <- predict(model1_fitted_mod, std_test, s=model1_lambda_select, type="link")
+  store_coefs = matrix(0, nrow = n_penalties, ncol = p1 + p2, dimnames = list(rownames(penalties), NULL));
+  store_fits = matrix(0, nrow = n_penalties, ncol = n_test, dimnames = list(rownames(penalties), NULL));
+  store_assess = matrix(0, nrow = n_penalties, ncol = 2, dimnames = list(rownames(penalties), c("brier","auc")));
+  for(k in 1:n_penalties) {
+    finite_penalties = which(penalties[k,] < Inf);
+    curr_fit = glmnet(x = std_x_train[,finite_penalties,drop=F], 
+                      y = y_train,
+                      standardize = F,
+                      family = "binomial",
+                      alpha = alpha_seq[which_best_alpha[k]],
+                      lambda = best_lambda_seq[[k]],
+                      penalty.factor = penalties[k,finite_penalties]);
+    
+    store_coefs[k,finite_penalties] = coef(curr_fit)[-1,which_best_lambda[k]]/scale_x_train[finite_penalties];
+    store_fits[k,] = drop(predict(curr_fit, std_x_test[,finite_penalties,drop=F], s = best_lambda[k], type="response"));
+    store_assess[k,"brier"] = mean((y_test - store_fits[k,])**2);
+    store_assess[k,"auc"] = roc(response = y_test, predictor = store_fits[k,], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
+  }
   
-  model2_fitted_mod = glmnet(x = std_all_x, 
-                             y = factor(1*y),
-                             standardize = F,
-                             family = "binomial",
-                             alpha = alpha_seq[which_alpha_all["Penalty2"]],
-                             lambda = model2_lambda_seq, 
-                             penalty.factor = penalize2);
-  
-  coef2 <- coef(model2_fitted_mod)[,model2_which_lambda];
-  mycoef2 <- coef2[-1]/scale_all_x;
-  myfit2 <- predict(model2_fitted_mod, std_test, s=model2_lambda_select, type="link")
-  
-  model3_fitted_mod = glmnet(x = std_all_x, 
-                             y = factor(1*y),
-                             standardize = F,
-                             family = "binomial",
-                             alpha = alpha_seq[which_alpha_all["Penalty3"]],
-                             lambda = model3_lambda_seq,
-                             penalty.factor = penalize3);
-           
-  coef3 = coef(model3_fitted_mod)[,model3_which_lambda];
-  mycoef3 <- coef3[-1]/scale_all_x;
-  myfit3 <- predict(model3_fitted_mod, std_test, s=model3_lambda_select, type="link")
-  
-  model4_fitted_mod = glmnet(x = std_all_x, 
-                             y = factor(1*y),
-                             standardize = F,
-                             family = "binomial",
-                             alpha = alpha_seq[which_alpha_all["Penalty4"]],
-                             lambda = model4_lambda_seq);
-            
-  coef4 = coef(model4_fitted_mod)[,model4_which_lambda];
-  mycoef4 <- coef4[-1]/scale_all_x;
-  myfit4 <- predict(model4_fitted_mod, std_test, s=model4_lambda_select, type="link")
-  
-  model5_fitted_mod = glmnet(x = std_all_x[,which_set1,drop=F],
-                             y = factor(1*y),
-                             standardize = F,
-                             family = "binomial",
-                             alpha = alpha_seq[which_alpha_all["Penalty5"]],
-                             lambda = model5_lambda_seq);
-        
-  coef5 = 0 * coef1;
-  coef5[rownames(coef(model5_fitted_mod))] <- coef(model5_fitted_mod)[,model5_which_lambda];
-  mycoef5 <- coef5[-1]/scale_all_x;
-  myfit5 <- predict(model5_fitted_mod, std_test[,which_set1,drop=F], s=model5_lambda_select, type="link")
- 
   #Finally, we determine which of the five models is best overall for each penalty combination:
-  myen <- 4
-  myipf_en <- which.min(apply(best_dev_all[c("Penalty2","Penalty3","Penalty4"),],1,min));
-  myipf_zero <- which.min(apply(best_dev_all[c("Penalty1","Penalty2","Penalty3","Penalty4"),],1,min));
-  myipf_inf <- which.min(apply(best_dev_all[c("Penalty2","Penalty3","Penalty4","Penalty5"),],1,min));
-  myMS <- which.min(apply(best_dev_all,1,min));
+  selected_penalties = apply(penalty_exclude * unlist(lapply(best_dev,min)), 2, which.min);
+  tuning_par = cbind(alpha = alpha_seq[which_best_alpha], 
+                     lambda = best_lambda);
+  rownames(tuning_par) = rownames(store_coefs);
   
-  mymodels <- list(mycoef1, myfit1, mycoef2, myfit2, mycoef3, myfit3, mycoef4, myfit4, 
-                   mycoef5, myfit5, myen, myipf_en, myipf_zero, myipf_inf, myMS, model1_lambda_select,
-                   model2_lambda_select, model3_lambda_select, model4_lambda_select, 
-                   model5_lambda_select, alpha_seq[which_alpha_all["Penalty1"]], 
-                   alpha_seq[which_alpha_all["Penalty2"]], alpha_seq[which_alpha_all["Penalty3"]],
-                   alpha_seq[which_alpha_all["Penalty4"]], alpha_seq[which_alpha_all["Penalty5"]]);
+  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_cv_rep = n_cv_rep, n_folds = n_folds), 
+              selected_penalties = selected_penalties,
+              store_coefs = store_coefs, 
+              store_fits = store_fits,
+              store_assess = store_assess,
+              tuning_par = tuning_par));
   
-  return(mymodels)
 }
 
 #dosgl performs a sparse-group lasso on a design matrix and outcome vector
-
-dosgl <- function(x){
+dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
   
-  #We separate out the design matrix and outcome vector
-  all_x <- x[,1:(p1+p2)]
-  y <- x[,(p1+p2+1)]
+  stopifnot(p1 + p2 == ncol(dat) - 1);
+  stopifnot(n_train < nrow(dat));
+  #We separate out the design matrix and outcome vector:
+  n_test = nrow(dat) - n_train;
+  
+  y_train <- dat[1:n_train,"y"];
+  x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
+  x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
+  y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
+  
+  #We standardize our design matrix:
+  center_x_train = apply(x_train,2,mean,na.rm=T);
+  scale_x_train = apply(x_train,2,sd,na.rm=T);
+  std_x_train = scale(x_train,center = center_x_train, scale = scale_x_train);
+  #We standardize our simulated test set to the same standard:
+  std_x_test = scale(x_test,center = center_x_train, scale = scale_x_train);
+  mydat = list(x = std_x_train, y = y_train)
   
   #We initialize values to store the deviance and lambda sequence 
-  assign(paste0("modelsgl_dev"),0);
-  assign(paste0("modelsgl_lambda_seq"),NULL);
-  assign(paste0("modelgroup_dev"),0);
-  assign(paste0("modelgroup_lambda_seq"),NULL);
-  
-  #We standardize our design matrix, make the response vector a factor, and assemble as a list:
-  center_all_x = apply(all_x,2,mean,na.rm=T);
-  scale_all_x = apply(all_x,2,sd,na.rm=T);
-  std_all_x = scale(all_x,center = center_all_x, scale = scale_all_x);
-  resp = factor(1*y)
-  mydat = list(x=all_x, y=y)
+  modelsgl_dev = 
+    modelgroup_dev = 0
+  modelsgl_lambda_seq = 
+    modelgroup_lambda_seq = NULL;
   
   #We create a vector to tell SGL which group each covariate belongs to:
-  estab <- rep(1,p1)
-  unestab <- rep(2,p2)
-  myindex <- c(estab,unestab)
+  myindex <- c(rep(1,p1),rep(2,p2));
   
   #Then we cross-validate and fit a model for each alpha
   for(i in 1:n_cv_rep) {
-      #First fitting a sparse group lasso with alpha = 0.95:
-      assign(paste0("fitted_sgl"),
-             cvSGL(data=mydat, 
-                   index=myindex, 
-                   type="logit",
-                   standardize = F,
-                   alpha = 0.95,
-                   nfold = n_folds));
-      assign(paste0("modelsgl_dev"),get(paste0("modelsgl_dev")) + get(paste0("fitted_sgl"))$lldiff/n_cv_rep);
-      if(is.null(get(paste0("modelsgl_lambda_seq")))) {assign(paste0("modelsgl_lambda_seq"),get(paste0("fitted_sgl"))$fit$lambdas);}
-      
-      
-      #And now fitting a grouped lasso with alpha = 0:
-      assign(paste0("fitted_group"),
-             cvSGL(data=mydat, 
-                   index=myindex, 
-                   type="logit",
-                   standardize = F,
-                   alpha = 0,
-                   nfold = n_folds));
-      assign(paste0("modelgroup_dev"),get(paste0("modelgroup_dev")) + get(paste0("fitted_group"))$lldiff/n_cv_rep);
-      if(is.null(get(paste0("modelgroup_lambda_seq")))) {assign(paste0("modelgroup_lambda_seq"),get(paste0("fitted_group"))$fit$lambdas);}
-      
+    #First fitting a sparse group lasso with alpha = 0.95:
+    fitted_sgl =
+      cvSGL(data = mydat, 
+            index = myindex, 
+            type = "logit",
+            standardize = F,
+            alpha = 0.95,
+            nlam = 100,
+            nfold = n_folds, 
+            lambdas = modelsgl_lambda_seq);
+    modelsgl_dev = modelsgl_dev + fitted_sgl$lldiff/n_cv_rep;
+    if(is.null(modelsgl_lambda_seq)) {modelsgl_lambda_seq = fitted_sgl$fit$lambdas;}
+    
+    #And now fitting a grouped lasso with alpha = 0:
+    fitted_group = 
+           cvSGL(data = mydat, 
+                 index = myindex, 
+                 type = "logit",
+                 standardize = F,
+                 alpha = 0,
+                 nlam = 100,
+                 nfold = n_folds,
+                 lambdas = modelgroup_lambda_seq);
+    modelgroup_dev = modelgroup_dev + fitted_group$lldiff/n_cv_rep;
+    if(is.null(modelgroup_lambda_seq)) {modelgroup_lambda_seq = fitted_group$fit$lambdas;}
+    
     cat(i,"\n");
   }
   
   #We locate the best lambda value for each model
-  sgl_which_lambda = which.min(get(paste0("modelsgl_dev")));
+  sgl_which_lambda = which.min(modelsgl_dev);
   sgl_lambda_select = modelsgl_lambda_seq[sgl_which_lambda];
   
-  group_which_lambda = which.min(get(paste0("modelgroup_dev")));
+  group_which_lambda = which.min(modelgroup_dev);
   group_lambda_select = modelgroup_lambda_seq[group_which_lambda];
   
   #Now we fit the final models, using our best values of alpha and lambda:
-  fitted_sgl = SGL(data=mydat,index=myindex, type="logit",
+  store_coefs = matrix(0, nrow = 2, ncol = p1 + p2, dimnames = list(c("sgl","group"), NULL));
+  store_fits = matrix(0, nrow = 2, ncol = n_test, dimnames = list(c("sgl","group"), NULL));
+  store_assess = matrix(0, nrow = 2, ncol = 2, dimnames = list(c("sgl","group"), c("brier","auc")));
+  
+  fitted_sgl = SGL(data = mydat,
+                   index = myindex, 
+                   type = "logit",
                    standardize = F,
                    alpha = 0.95,
-                   lambdas= modelsgl_lambda_seq);
+                   nlam = 100,#Weird thing is that even though we provide the 'modelsgl_lambda_seq', we still need to specify this length
+                   lambdas = modelsgl_lambda_seq);
   
-  fitted_group = SGL(data=mydat,index=myindex, type="logit",
+  store_coefs["sgl",] = fitted_sgl$beta[,sgl_which_lambda]/scale_x_train;
+  store_fits["sgl",] = drop(predictSGL(fitted_sgl, std_x_test, sgl_which_lambda));
+  store_assess["sgl","brier"] = mean((y_test - store_fits["sgl",])**2);
+  store_assess["sgl","auc"] = roc(response = y_test, predictor = store_fits["sgl",], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
+
+  fitted_group = SGL(data = mydat,
+                   index = myindex, 
+                   type = "logit",
                    standardize = F,
-                   alpha = 0,
-                   lambdas= modelgroup_lambda_seq);
+                   alpha = 0.95,
+                   nlam = 100,#Weird thing is that even though we provide the 'modelgroup_lambda_seq', we still need to specify this length
+                   lambdas = modelgroup_lambda_seq);
   
-  #We standardize the test set:
-  std_test = scale(testsetx,center = center_all_x, scale = scale_all_x);
+  store_coefs["group",] = fitted_group$beta[,group_which_lambda]/scale_x_train;
+  store_fits["group",] = drop(predictSGL(fitted_group, std_x_test, group_which_lambda));
+  store_assess["group","brier"] = mean((y_test - store_fits["group",])**2);
+  store_assess["group","auc"] = roc(response = y_test, predictor = store_fits["group",], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
   
-  #We obtain coefficients and predicted values for the models:
-  coef_sgl <- fitted_sgl$beta[,sgl_which_lambda];
-  mycoef_sgl <- coef_sgl[-1]/scale_all_x;
-  myfit_sgl <- predictSGL(fitted_sgl, testsetx,sgl_which_lambda)
+  tuning_par = cbind(alpha = c(0.95, 0),
+                     lambda = c(sgl_lambda_select, group_lambda_select));
+  rownames(tuning_par) = c("sgl","group");
   
-  coef_group <- fitted_group$beta[,group_which_lambda];
-  mycoef_group <- coef_group[-1]/scale_all_x;
-  myfit_group <- predictSGL(fitted_group, testsetx,group_which_lambda)
+  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, n_cv_rep = n_cv_rep, n_folds = n_folds), 
+              store_coefs = store_coefs, 
+              store_fits = store_fits,
+              store_assess = store_assess,
+              tuning_par = tuning_par));
   
-  mymodels <- list(mycoef_sgl, myfit_sgl, sgl_lambda_select, mycoef_group, myfit_group, group_lambda_select)
-  
-  return(mymodels)
 }
 
 ## PART 3: FUNCTIONS TO USE OUTPUT FROM PENALIZED REGRESSION FUNCTIONS AND ASSESS PERFORMANCE
@@ -389,34 +293,27 @@ is.integer0 <- function(x)
 #that, so if the actual winning penalty was Penalty 2, it was being registered as Penalty 1, 
 #or Penalty 4 was being reported as Penalty 3. Adding 1 hopefully fixed the problem.
 
-subnet <- function(x,quelmod){ 
-    if (quelmod==11){
-      model_pick <- x[[quelmod]]
-    } else if (quelmod==12){
-      model_pick <- (x[[quelmod]]+1)
-    } else if (quelmod==13){
-      model_pick <- x[[quelmod]]
-    } else if (quelmod==14){
-      model_pick <- (x[[quelmod]]+1)
-    } else if (quelmod==15){
-      model_pick <- x[[quelmod]]
-    }
+#choose from quelmod in c("ipf_zero","ipf_en","en","ipf_inf","ms");
+
+subnet <- function(x, quelmod){ 
   
-  indicator <- model_pick*2
-  mymodel <- list(x[[(indicator-1)]], x[[indicator]])
+  penalty_pick = x$selected_penalties[quelmod];
   
-  return(mymodel)
+  return(list(setup = x$setup, 
+              tuning_par = c(x$tuning_par[penalty_pick,],phi_cat = as.numeric(penalty_pick)),
+              coefs = x$store_coefs[penalty_pick,],
+              fits = x$store_fits[penalty_pick,],
+              assess = x$store_assess[penalty_pick,]));
 }
 
 #subsgl is used on the mysgl output to extract the different sgl penalties
-subsgl <- function(x,quelmod)
-{ if (quelmod==1){
-  mymodel <- list(x[[1]], x[[2]])
-} else if (quelmod==2){
-  mymodel <- list(x[[4]], x[[5]])
-}
-  
-return(mymodel)
+subsgl <- function(x,quelmod) {
+
+  return(list(setup = x$setup, 
+              tuning_par = c(x$tuning_par[quelmod,]),
+              coefs = x$store_coefs[quelmod,],
+              fits = x$store_fits[quelmod,],
+              assess = x$store_assess[quelmod,]));
 }
 
 #getys obtains the predicted values nets and IPF and then de-logits them
@@ -450,20 +347,20 @@ return(myAUC$auc)
 # covariateeffect calculates the mean estimated effect over the established and unestablished covariates 
 covariateeffect <- function(x)
 {   small_number = .Machine$double.eps^0.5
-    mycoefs <- x[[1]] #extracting coefficients and removing intercept
-    if (is.null(names(mycoefs))==0){
-      if (names(mycoefs)[1]=="(Intercept)"){
-        mycoefs <- mycoefs[2:(p1+p2+1)]
-      }
-    }  
+mycoefs <- x[[1]] #extracting coefficients and removing intercept
+if (is.null(names(mycoefs))==0){
+  if (names(mycoefs)[1]=="(Intercept)"){
+    mycoefs <- mycoefs[2:(p1+p2+1)]
+  }
+}  
 
-    esteffect <- mean(mycoefs[which_set1]) #finding the mean signal across the established coefficients
-    if (sum(is.na(mycoefs[which_set2]))==p2){unesteffect <- 0 #finding the mean signal across unestablished coefficients
-    } else {unesteffect <- mean(mycoefs[which_set2])
-    }  
-    
-    results <- c(esteffect, unesteffect)
-    return(results)
+esteffect <- mean(mycoefs[which_set1]) #finding the mean signal across the established coefficients
+if (sum(is.na(mycoefs[which_set2]))==p2){unesteffect <- 0 #finding the mean signal across unestablished coefficients
+} else {unesteffect <- mean(mycoefs[which_set2])
+}  
+
+results <- c(esteffect, unesteffect)
+return(results)
 }
 
 #findRMSE calculates the root mean squared error

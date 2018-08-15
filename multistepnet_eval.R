@@ -33,26 +33,65 @@ cl <- makeCluster(no_cores)
 
 #First, we will extract the five different net penalties and the two SGL methods:
 
-en <- mclapply(mynet,subnet, quelmod=11, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+en <- mclapply(mynet,subnet, quelmod="en", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                  mc.cores=no_cores,mc.cleanup=TRUE)
   
-ipf_en <- mclapply(mynet,subnet, quelmod=12, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+ipf_en <- mclapply(mynet,subnet, quelmod="ipf_en", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                   mc.cores=no_cores,mc.cleanup=TRUE)
   
-ipf_zero <- mclapply(mynet,subnet, quelmod=13, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+ipf_zero <- mclapply(mynet,subnet, quelmod="ipf_zero", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                  mc.cores=no_cores,mc.cleanup=TRUE)
 
-ipf_inf <- mclapply(mynet,subnet, quelmod=14, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+ipf_inf <- mclapply(mynet,subnet, quelmod="ipf_inf", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                  mc.cores=no_cores,mc.cleanup=TRUE)
 
-ms <- mclapply(mynet,subnet, quelmod=15, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+ms <- mclapply(mynet,subnet, quelmod="ms", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                  mc.cores=no_cores,mc.cleanup=TRUE)
 
-sgl <- mclapply(mysgl,subsgl, quelmod=1, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+sgl <- mclapply(mysgl,subsgl, quelmod="sgl", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
             mc.cores=no_cores,mc.cleanup=TRUE)
 
-glasso <- mclapply(mysgl,subsgl, quelmod=2, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+glasso <- mclapply(mysgl,subsgl, quelmod="group", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                   mc.cores=no_cores,mc.cleanup=TRUE)
+
+#e.g. inspect distribution of tuning parameters
+matrix(unlist(lapply(ms,"[","tuning_par")), nrow = reps, byrow=T)
+matrix(unlist(lapply(sgl,"[","tuning_par")), nrow = reps, byrow=T)
+#e.g. inspect distribution of model assessments (brier scores, auc)
+matrix(unlist(lapply(ms,"[","assess")), nrow = reps, byrow=T)
+matrix(unlist(lapply(sgl,"[","assess")), nrow = reps, byrow=T)
+
+#e.g. inspect coefficients, RMSE, sensitivity
+matrix_truebetas = matrix(truebetas, nrow = reps, ncol = length(truebetas), byrow = T);
+#RMSE All betas
+estbeta_ms = matrix(unlist(lapply(ms,"[","coefs")), nrow = reps, byrow=T);
+
+mean(sqrt(rowMeans((estbeta_ms - matrix_truebetas)^2)));
+#RMSE Established
+mean(sqrt(rowMeans((estbeta_ms[,which_set1,drop=F] - matrix_truebetas[,which_set1,drop=F])^2)));
+#RMSE Unestablished
+mean(sqrt(rowMeans((estbeta_ms[,which_set2,drop=F] - matrix_truebetas[,which_set2,drop=F])^2)));
+
+#Sensitivity, specificity All betas
+matrix_abs_truebetas = abs(matrix_truebetas);
+abs_estbeta_ms = abs(estbeta_ms);
+sum((abs_estbeta_ms > small_number) * (matrix_abs_truebetas > small_number)) / sum(matrix_abs_truebetas > small_number);
+sum((abs_estbeta_ms < small_number) * (matrix_abs_truebetas < small_number)) / sum(matrix_abs_truebetas < small_number);
+#Sensitivity, specificity established
+sum((abs_estbeta_ms[,which_set1,drop=F] > small_number) * (matrix_abs_truebetas[,which_set1,drop=F] > small_number)) / sum(matrix_abs_truebetas[,which_set1,drop=F] > small_number);
+sum((abs_estbeta_ms[,which_set1,drop=F] < small_number) * (matrix_abs_truebetas[,which_set1,drop=F] < small_number)) / sum(matrix_abs_truebetas[,which_set1,drop=F] < small_number);
+#Sensitivity, specificity established
+sum((abs_estbeta_ms[,which_set2,drop=F] > small_number) * (matrix_abs_truebetas[,which_set2,drop=F] > small_number)) / sum(matrix_abs_truebetas[,which_set2,drop=F] > small_number);
+sum((abs_estbeta_ms[,which_set2,drop=F] < small_number) * (matrix_abs_truebetas[,which_set2,drop=F] < small_number)) / sum(matrix_abs_truebetas[,which_set2,drop=F] < small_number);
+
+#TDR All betas
+sum((abs_estbeta_ms > small_number) * (matrix_abs_truebetas > small_number)) / sum(abs_estbeta_ms > small_number);
+#TDR established
+sum((abs_estbeta_ms[,which_set1,drop=F] > small_number) * (matrix_abs_truebetas[,which_set1,drop=F] > small_number)) / sum(abs_estbeta_ms[,which_set1,drop=F] > small_number);
+#TDR established
+sum((abs_estbeta_ms[,which_set2,drop=F] > small_number) * (matrix_abs_truebetas[,which_set2,drop=F] > small_number)) / sum(abs_estbeta_ms[,which_set2,drop=F] > small_number);
+
+
 
 ######PROBABLY CAN STOP HERE; MODEL SELECTION IS COMPLETE AT THIS POINT########
 
