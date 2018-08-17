@@ -330,13 +330,6 @@ sglgetys <- function(x)
 return(predy)
 }
 
-#getAUC uses the predicted values obtained with the getys family of functions above to calculate
-#the AUC; note that it uses the pROC package to do so
-getAUC <- function(x)
-{ myAUC <- roc(response=testsety, predictor=x, smooth=FALSE, auc=TRUE, ci=TRUE, plot=FALSE)
-return(myAUC$auc)
-}
-
 # covariateeffect calculates the mean estimated effect over the established and unestablished covariates 
 covariateeffect <- function(x)
 {   small_number = .Machine$double.eps^0.5
