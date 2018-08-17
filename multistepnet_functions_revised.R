@@ -330,13 +330,6 @@ sglgetys <- function(x)
 return(predy)
 }
 
-#BrierScore uses the predicted values obtained with the getys family of functions above to calculate
-#the Brier Score
-BrierScore <- function(x)
-{bs <- mean((x-testsety)**2)
-return(bs)
-}
-
 #getAUC uses the predicted values obtained with the getys family of functions above to calculate
 #the AUC; note that it uses the pROC package to do so
 getAUC <- function(x)
