@@ -3,13 +3,12 @@
 ## File name: multipstepnet_functions_revised.R
 ## Programmer: Elizabeth Chase
 ## Project: Multi-step elastic net, in collaboration with Phil Boonstra
-## Date: Worked on from Oct. 1, 2017-June 1, 2018; this polished code was completed and assembled
-##       for publication on May 17-May 18, 2018
-## Revisions from multistepnet_functions.R occurred on June 6, 2018
+## Date: Worked on from Oct. 1, 2017-June 1, 2018, then uploaded to GitHub in July 2018, where it 
+##       underwent further revision 
 ## Other related files: multistepnet_sim.R, multistepnet_eval.R, MSexample_functions.R
-## Purpose: This file contains R functions that perform an elastic net, underpenalized elastic net, 
-##          multi-step elastic net, IPF-Lasso, and sparse group lasso. It also contains functions
-##          to process the output from the lasso functions and assess AUC, Brier score, sensitivity,
+## Purpose: This file contains R functions that perform an elastic net, multi-step elastic net,
+##          IPF-Lasso, and sparse group lasso. It also contains functions to process 
+##          the output from the lasso functions and assess AUC, Brier score, sensitivity,
 ##          and TDR for outputted data. 
 
 ###################################################################################################
@@ -32,18 +31,18 @@ makey <- function(design, trueintercept, truebetas) {
 
 ## PART 2: FUNCTIONS TO PERFORM PENALIZED REGRESSION ON SIMULATED DATA
 
-#donet performs all 5 versions of the elastic net. It fits the following 5 models:
+#donet performs all 4 versions of the elastic net. It fits the following 4 penalties:
 #Model 1: phi_1 = 0, phi_2 = 1
 #Model 2: phi_1 = 1/16, phi_2 = 1
 #Model 3: phi_1 = 1/2, phi_2 = 1
 #Model 4: phi_1 = 1, phi_2 = 1
-#Model 5: phi_1 = 1, phi_2 = 0
 #And then produces the final models:
 #Elastic net: Model 4
 #IPF-EN: best of models 2, 3, and 4
-#IPF-EN + Zero: best of models 1, 2, 3, and 4
-#IPF-EN + Infinity: best of models 2, 3, 4, and 5
-#MSN: best of models 1, 2, 3, 4, and 5
+#MSN: best of models 1, 2, 3, and 4
+
+#In addition, it fits an IPF-LASSO, which is the best of penalties 2-4, but with alpha fixed
+#at 1
 
 #the input is a design matrix and other variables used in multistepnet_sim.R
 
@@ -65,7 +64,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   #We standardize our simulated test set to the same standard:
   std_x_test = scale(x_test,center = center_x_train, scale = scale_x_train);
   
-  #We now fit our 5 differently-penalized models for each of our 11 values of alpha for each of our 
+  #We now fit our 4 differently-penalized models for each of our 3 values of alpha for each of our 
   #cross-validated replicates:
   #Model 1: phi_1 = 0, phi_2 = 1 (no penalization on established and full on unestablished)
   penalties = rbind(penalty1 = c(rep(0,p1),rep(1,p2)),
@@ -74,26 +73,25 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
                     #Model3 (Phi_1 = 1/2, Phi_2 = 1, or double penalization on the unestablished covariates)
                     penalty3 = c(rep(1/2,p1),rep(1,p2)),
                     #Model 4: phi_1 = 1, phi_2 = 1, or no penalization on the established covariates
-                    penalty4 = c(rep(1,p1),rep(1,p2)),
-                    #Model5 (Phi_1 = 1, Phi_2 = 0, or infinite penalization on the unestablished covariates)
-                    penalty5 = c(rep(1,p1),rep(Inf,p2)));
+                    penalty4 = c(rep(1,p1),rep(1,p2)));
   penalty_exclude = 
-    cbind(ipf_zero = c(1, 1, 1, 1, Inf), 
-          ipf_en = c(Inf, 1, 1, 1, Inf), 
-          en = c(Inf, Inf, Inf, 1, Inf), 
-          ipf_inf = c(Inf, 1, 1, 1, 1), 
-          ms = c(1, 1, 1, 1, 1));
+    cbind(ipf_en = c(Inf, 1, 1, 1), 
+          en = c(Inf, Inf, Inf, 1), 
+          ms = c(1, 1, 1, 1));
   n_penalties = nrow(penalties);
   
   #First, we initialize values to hold the deviance and lambda sequence for each
   #combination of alpha and phi (3 alphas and 5 phis)
   n_alphas = length(alpha_seq);
-  store_dev = 
-    store_lambda_seq = vector("list",n_penalties);
+  store_dev = store_dev_lasso = 
+    store_lambda_seq_lasso = store_lambda_seq = vector("list",n_penalties);
+
   for(k in 1:n_penalties) {#initialize values
     store_dev[[k]] = 
       store_lambda_seq[[k]] = vector("list",n_alphas);
+    store_dev_lasso[[k]] = store_lambda_seq_lasso[[k]] = vector("list", 1);
     store_dev[[k]][1:n_alphas] = 0;
+    store_dev_lasso[[k]][1] = 0;
     names(store_dev[[k]]) = 
       names(store_lambda_seq[[k]]) = alpha_seq;
   }
@@ -106,64 +104,97 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   }
   
   for(k in 1:n_penalties) {
-    finite_penalties = which(penalties[k,] < Inf);
     for(i in 1:n_cv_rep) {
       for(j in 1:n_alphas) {
-        curr_fit = cv.glmnet(x = std_x_train[,finite_penalties,drop=F], 
+        curr_fit = cv.glmnet(x = std_x_train, 
                              y = y_train,
                              standardize = F,
                              family = "binomial",
                              alpha = alpha_seq[j],
                              foldid = foldid[,i],
                              lambda = store_lambda_seq[[k]][[j]],
-                             penalty.factor = penalties[k,finite_penalties],
+                             penalty.factor = penalties[k,],
                              keep = T);
         store_dev[[k]][[j]] = store_dev[[k]][[j]] + curr_fit$cvm/n_cv_rep;
         if(is.null(store_lambda_seq[[k]][[j]])) {store_lambda_seq[[k]][[j]] = curr_fit$lambda;}
         #assign(paste0("alpha",j,"_model",k,"_fitted_prob"), get(paste0("fitted",k,"_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model",k,"_lambda_seq")))]);
       } 
+      
+      lasso_fit = cv.glmnet(x = std_x_train, 
+                           y = y_train,
+                           standardize = F,
+                           family = "binomial",
+                           alpha = 1,
+                           foldid = foldid[,i],
+                           lambda = store_lambda_seq_lasso[[k]][[1]],
+                           penalty.factor = penalties[k,],
+                           keep = T);
+      store_dev_lasso[[k]][[1]] = store_dev_lasso[[k]][[1]] + lasso_fit$cvm/n_cv_rep;
+      if(is.null(store_lambda_seq_lasso[[k]][[1]])) {store_lambda_seq_lasso[[k]][[1]] = lasso_fit$lambda;} 
+      
     }
     cat(k,"\n");
   }
   
   which_best_alpha = apply(matrix(rapply(store_dev, min), nrow = n_penalties, byrow = T), 1, which.min);
+  which_best_alpha_lasso = apply(matrix(rapply(store_dev_lasso, min), nrow = n_penalties, byrow = T), 1, which.min);
   best_lambda_seq = mapply("[[",store_lambda_seq,which_best_alpha);
+  best_lambda_seq_lasso = mapply("[[",store_lambda_seq_lasso,which_best_alpha_lasso);
   best_dev = mapply("[[",store_dev,which_best_alpha);
+  best_dev_lasso = mapply("[[",store_dev_lasso,which_best_alpha_lasso);
   which_best_lambda = unlist(lapply(best_dev, which.min));
+  which_best_lambda_lasso = unlist(lapply(best_dev_lasso, which.min));
   best_lambda = mapply("[",best_lambda_seq,which_best_lambda)
+  best_lambda_lasso = mapply("[",best_lambda_seq_lasso,which_best_lambda_lasso)
   
   #And now we fit the final models using our optimal values of lambda and alpha for each penalty type:
-  store_coefs = matrix(0, nrow = n_penalties, ncol = p1 + p2, dimnames = list(rownames(penalties), NULL));
-  store_fits = matrix(0, nrow = n_penalties, ncol = n_test, dimnames = list(rownames(penalties), NULL));
-  store_assess = matrix(0, nrow = n_penalties, ncol = 2, dimnames = list(rownames(penalties), c("brier","auc")));
+  store_coefs = coefs_lasso = matrix(0, nrow = n_penalties, ncol = p1 + p2, dimnames = list(rownames(penalties), NULL));
+  store_fits = fits_lasso = matrix(0, nrow = n_penalties, ncol = n_test, dimnames = list(rownames(penalties), NULL));
+  store_assess = assess_lasso = matrix(0, nrow = n_penalties, ncol = 2, dimnames = list(rownames(penalties), c("brier","auc")));
   for(k in 1:n_penalties) {
-    finite_penalties = which(penalties[k,] < Inf);
-    curr_fit = glmnet(x = std_x_train[,finite_penalties,drop=F], 
+    curr_fit = glmnet(x = std_x_train, 
                       y = y_train,
                       standardize = F,
                       family = "binomial",
                       alpha = alpha_seq[which_best_alpha[k]],
                       lambda = best_lambda_seq[[k]],
-                      penalty.factor = penalties[k,finite_penalties]);
+                      penalty.factor = penalties[k,]);
     
-    store_coefs[k,finite_penalties] = coef(curr_fit)[-1,which_best_lambda[k]]/scale_x_train[finite_penalties];
-    store_fits[k,] = drop(predict(curr_fit, std_x_test[,finite_penalties,drop=F], s = best_lambda[k], type="response"));
+    lasso_fit = glmnet(x = std_x_train, 
+                      y = y_train,
+                      standardize = F,
+                      family = "binomial",
+                      alpha = 1,
+                      lambda = best_lambda_seq_lasso[[k]],
+                      penalty.factor = penalties[k,]);
+    
+    store_coefs[k,] = coef(curr_fit)[-1,which_best_lambda[k]]/scale_x_train;
+    coefs_lasso[k,] = coef(lasso_fit)[-1,which_best_lambda_lasso[k]]/scale_x_train;
+    store_fits[k,] = drop(predict(curr_fit, std_x_test, s = best_lambda[k], type="response"));
+    fits_lasso[k,] = drop(predict(lasso_fit, std_x_test, s = best_lambda_lasso[k], type="response"));
     store_assess[k,"brier"] = mean((y_test - store_fits[k,])**2);
     store_assess[k,"auc"] = roc(response = y_test, predictor = store_fits[k,], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
+    assess_lasso[k,"brier"] = mean((y_test - fits_lasso[k,])**2);
+    assess_lasso[k,"auc"] = roc(response = y_test, predictor = fits_lasso[k,], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
   }
   
   #Finally, we determine which of the five models is best overall for each penalty combination:
   selected_penalties = apply(penalty_exclude * unlist(lapply(best_dev,min)), 2, which.min);
+  penalty_lasso = which.min(unlist(lapply(best_dev_lasso,min))[2:4])+1;
   tuning_par = cbind(alpha = alpha_seq[which_best_alpha], 
                      lambda = best_lambda);
   rownames(tuning_par) = rownames(store_coefs);
+  tuning_par_lasso = cbind(alpha = 1, 
+                     lambda = best_lambda_lasso);
+  rownames(tuning_par_lasso) = rownames(store_coefs);
   
   return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_cv_rep = n_cv_rep, n_folds = n_folds), 
               selected_penalties = selected_penalties,
               store_coefs = store_coefs, 
               store_fits = store_fits,
               store_assess = store_assess,
-              tuning_par = tuning_par));
+              tuning_par = tuning_par,
+              ipflasso = list(penalty = penalty_lasso, coefs = coefs_lasso, fits = fits_lasso, assess = assess_lasso, tuning_par = tuning_par_lasso)));
   
 }
 
@@ -285,15 +316,7 @@ is.integer0 <- function(x)
 {is.integer(x) && length(x) == 0L}
 
 #subnet is used on the mynet output to extract the different net penalties
-
-####THIS IS WHERE I MADE MY MISTAKE: note that for quelmod=12 and quelmod=14, I'm 
-#adding 1 to the penalty selection indicator; that's because, for those methods, it's 
-#selecting from a reduced set of penalty options that starts at 2, rather than 1, so
-#adding 1 is necessary to get the intended penalty winner. Originally, I wasn't doing 
-#that, so if the actual winning penalty was Penalty 2, it was being registered as Penalty 1, 
-#or Penalty 4 was being reported as Penalty 3. Adding 1 hopefully fixed the problem.
-
-#choose from quelmod in c("ipf_zero","ipf_en","en","ipf_inf","ms");
+#choose from quelmod in c("ipf_en","en","ms");
 
 subnet <- function(x, quelmod){ 
   
@@ -314,6 +337,10 @@ subsgl <- function(x,quelmod) {
               coefs = x$store_coefs[quelmod,],
               fits = x$store_fits[quelmod,],
               assess = x$store_assess[quelmod,]));
+}
+
+getassess <- function(x, quelmod){
+  return(x$assess[quelmod])
 }
 
 #getys obtains the predicted values nets and IPF and then de-logits them
