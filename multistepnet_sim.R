@@ -4,8 +4,10 @@
 ## Programmer: Elizabeth Chase
 ## Project: Multi-step elastic net, in collaboration with Phil Boonstra
 ## Date: Worked on from Oct. 1, 2017-June 1, 2018; this polished code was completed and assembled
-##       for publication on May 17-May 18, 2018
-## Other related files: multistepnet_functions.R, multistepnet_example.R
+##       for publication on May 17-May 18, 2018. This code was further polished and updated by Phil
+##       Boonstra and posted on GitHub in August 2018, where it underwent further revisions by Phil
+##       and Elizabeth.
+## Other related files: multistepnet_functions_revised.R, multistepnet_eval.R
 ## Purpose: This file simulates data according to 12 scenarios and then performs an elastic net,
 ##          underpenalized elastic net, multi-step elastic net, IPF-Lasso, and sparse group lasso
 ##          on each simulated dataset. 
@@ -127,7 +129,7 @@ bigdesign <- mclapply(all_x, makey, trueintercept = trueintercept, truebetas = t
                       mc.silent = TRUE, mc.cores = no_cores, mc.cleanup = TRUE)
 
 #We set penalized regression parameters: our alpha sequence, number of CV replicates, and number of folds:
-alpha_seq = c(0.1, 0.5, 0.9);
+alpha_seq = c(0, 0.1, 0.2);
 n_cv_rep = 25;
 n_folds = 5;
 
