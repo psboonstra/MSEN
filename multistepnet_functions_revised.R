@@ -47,12 +47,15 @@ makey <- function(design, trueintercept, truebetas) {
 #the input is a design matrix and other variables used in multistepnet_sim.R
 
 donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
+  require(glmnet);
+  require(pROC);
+  
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
   #We separate out the design matrix and outcome vector:
   n_test = nrow(dat) - n_train;
   
-  y_train <- factor(1 * dat[1:n_train,"y"]);
+  y_train <- factor(1 * dat[1:n_train,"y"], levels = c(0,1));
   x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
   x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
   y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
@@ -138,10 +141,10 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   
   which_best_alpha = apply(matrix(rapply(store_dev, min), nrow = n_penalties, byrow = T), 1, which.min);
   which_best_alpha_lasso = apply(matrix(rapply(store_dev_lasso, min), nrow = n_penalties, byrow = T), 1, which.min);
-  best_lambda_seq = mapply("[[",store_lambda_seq,which_best_alpha);
-  best_lambda_seq_lasso = mapply("[[",store_lambda_seq_lasso,which_best_alpha_lasso);
-  best_dev = mapply("[[",store_dev,which_best_alpha);
-  best_dev_lasso = mapply("[[",store_dev_lasso,which_best_alpha_lasso);
+  best_lambda_seq = mapply("[[",store_lambda_seq,which_best_alpha,SIMPLIFY = F);
+  best_lambda_seq_lasso = mapply("[[",store_lambda_seq_lasso,which_best_alpha_lasso,SIMPLIFY = F);
+  best_dev = mapply("[[",store_dev,which_best_alpha,SIMPLIFY = F);
+  best_dev_lasso = mapply("[[",store_dev_lasso,which_best_alpha_lasso,SIMPLIFY = F);
   which_best_lambda = unlist(lapply(best_dev, which.min));
   which_best_lambda_lasso = unlist(lapply(best_dev_lasso, which.min));
   best_lambda = mapply("[",best_lambda_seq,which_best_lambda)
@@ -200,6 +203,8 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
 
 #dosgl performs a sparse-group lasso on a design matrix and outcome vector
 dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
+  require(SGL);
+  require(pROC);
   
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
