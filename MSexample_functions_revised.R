@@ -1,68 +1,83 @@
 ###################################################################################################
 
-## File name: multipstepnet_functions_revised.R
+## File name: MSexample_functions_revised.R
 ## Programmer: Elizabeth Chase
 ## Project: Multi-step elastic net, in collaboration with Phil Boonstra
-## Date: Worked on from Oct. 1, 2017-June 1, 2018, then uploaded to GitHub in July 2018, where it 
-##       underwent further revision 
-## Other related files: multistepnet_sim.R, multistepnet_eval.R, MSexample_functions.R
-## Purpose: This file contains R functions that perform an elastic net, multi-step elastic net,
-##          IPF-Lasso, and sparse group lasso. It also contains functions to process 
-##          the output from the lasso functions and assess AUC, Brier score, sensitivity,
-##          and TDR for outputted data. 
+## Date: Worked on from Oct. 1, 2017-June 1, 2018; this polished code was completed and assembled
+##       for publication during fall 2018
+## Other related files: multistepnet_example.R, multistepnet_functions_revised.R
+## Purpose: This file contains functions to clean the ECMO Ped-Rescuers data; perform an elastic net,
+##          multi-step elastic net, IPF-Lasso, and sparse group lasso; and analyze results from the 
+##          above functions.
 
 ###################################################################################################
 
-## PART 1: FUNCTIONS TO SIMULATE DATA
+## PART 1: FUNCTIONS TO CLEAN IMPUTED ECMO DATA
 
-#expit is needed for the logistic regression setting 
-expit = function(x) {1/(1+exp(-x));}
-
-#makex simulates a design matrix according to our preset coefficient, sample size, and correlation values:
-makex <- function(n,p,chol_var) {
-  matrix(rnorm(n * p), nrow = n)%*%chol_var;
+# as.dummy takes the raw, imputed ECMO data and recodes categorical variables as dummy variables:
+as.dummy = function(x,full_rank=T) {
+  single.as.dummy <- function(x,full_rank) {
+    levels_x = levels(x);
+    1*matrix(rep(x,nlevels(x)) == rep(levels_x,each=length(x)),nrow=length(x),ncol=nlevels(x),dimnames=list(NULL,levels_x))[,(1+full_rank):length(levels_x),drop=F];
+  }
+  if("factor"%in%class(x)) {
+    if(length(full_rank)>1) {warning("ignoring all but first element of 'full_rank'");}
+    result = single.as.dummy(x,full_rank[1]);
+  } else if("logical"%in%class(x)) {
+    if(length(full_rank)>1) {warning("ignoring all but first element of 'full_rank'");}
+    result = single.as.dummy(factor(x,levels=c(F,T)),full_rank[1]);
+  } else if("integer"%in%class(x)) {
+    if(length(full_rank)>1) {warning("ignoring all but first element of 'full_rank'");}
+    result = single.as.dummy(factor(x,levels=sort(unique(x),decreasing = T)),full_rank[1]);
+  } else if(class(x)=="data.frame") {
+    result = NULL;
+    full_rank = rep(full_rank,length=ncol(x));
+    for(i in 1:ncol(x)) {
+      if("factor"%in%class(x[,i])) {
+        foo = single.as.dummy(x[,i],full_rank[i]);
+        colnames(foo) = paste0(colnames(x)[i],colnames(foo));
+        result = cbind(result,foo);
+      } else if("logical"%in%class(x[,i])) {
+        foo = single.as.dummy(factor(x[,i],levels=c(F,T)),full_rank[i]);
+        colnames(foo) = paste0(colnames(x)[i],colnames(foo));
+        result = cbind(result,foo);
+      } else if("integer"%in%class(x[,i])) {
+        foo = single.as.dummy(factor(x[,i],levels=sort(unique(x[,i]),decreasing = T)),full_rank[i]);
+        colnames(foo) = paste0(colnames(x)[i],colnames(foo));
+        result = cbind(result,foo);
+      } else {
+        stop("x must be either a factor, logical, or a dataframe comprised of factors/logicals/integers");
+      }
+    } 
+  } else {
+    stop("x must be either a factor, logical, or a dataframe comprised of factors/logicals/integers");
+  }
+  data.frame(result);
 }
 
-#makey creates an outcome matrix based on the design matrices simulated above, and appends it to the design
-#matrix:
-makey <- function(design, trueintercept, truebetas) {
-  cbind(design, y = rbinom(nrow(design), 1, expit(trueintercept + design%*%truebetas)));
+#expit is needed for the logistic regression setting
+expit = function(x) {
+  1/(1+exp(-x))
 }
 
-## PART 2: FUNCTIONS TO PERFORM PENALIZED REGRESSION ON SIMULATED DATA
+#is.integer0 is needed to identify empty vectors and lists
+is.integer0 <- function(x)
+{is.integer(x) && length(x) == 0L}
 
-#donet performs all 4 versions of the elastic net. It fits the following 4 penalties:
-#Model 1: phi_1 = 0, phi_2 = 1
-#Model 2: phi_1 = 1/16, phi_2 = 1
-#Model 3: phi_1 = 1/2, phi_2 = 1
-#Model 4: phi_1 = 1, phi_2 = 1
-#And then produces the final models:
-#Elastic net: Model 4
-#IPF-EN: best of models 2, 3, and 4
-#MSN: best of models 1, 2, 3, and 4
+#netimp fits an elastic net, IPF-EN, IPF-Lasso, and MS to the imputed data; it does not
+#consolidate across cross-validations to deal with the imputations and it does not 
+#standardize the data because we have pre-standardized it
 
-#In addition, it fits an IPF-LASSO, which is the best of penalties 2-4, but with alpha fixed
-#at 1
-
-#the input is a design matrix and other variables used in multistepnet_sim.R
-
-donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
+netimp <- function(dat, n_train, p1, p2, alpha_seq, n_folds){
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
   #We separate out the design matrix and outcome vector:
   n_test = nrow(dat) - n_train;
   
   y_train <- factor(1 * dat[1:n_train,"y"]);
-  x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
-  x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
+  std_x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
+  std_x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
   y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
-  
-  #We standardize our design matrix:
-  center_x_train = apply(x_train,2,mean,na.rm=T);
-  scale_x_train = apply(x_train,2,sd,na.rm=T);
-  std_x_train = scale(x_train,center = center_x_train, scale = scale_x_train);
-  #We standardize our simulated test set to the same standard:
-  std_x_test = scale(x_test,center = center_x_train, scale = scale_x_train);
   
   #We now fit our 4 differently-penalized models for each of our 3 values of alpha for each of our 
   #cross-validated replicates:
@@ -85,7 +100,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   n_alphas = length(alpha_seq);
   store_dev = store_dev_lasso = 
     store_lambda_seq_lasso = store_lambda_seq = vector("list",n_penalties);
-
+  
   for(k in 1:n_penalties) {#initialize values
     store_dev[[k]] = 
       store_lambda_seq[[k]] = vector("list",n_alphas);
@@ -98,41 +113,36 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   
   #Because glmnet allows us to assign folds, we assign observations to folds to ensure
   #consistency across imputations. 
-  foldid = matrix(NA,n_train,n_cv_rep);
-  for(i in 1:n_cv_rep) {
-    foldid[,i] = sample(rep(1:n_folds,length = n_train));
-  }
-  
+  foldid = sample(rep(1:n_folds,length = n_train));
+
   for(k in 1:n_penalties) {
-    for(i in 1:n_cv_rep) {
       for(j in 1:n_alphas) {
         curr_fit = cv.glmnet(x = std_x_train, 
                              y = y_train,
                              standardize = F,
                              family = "binomial",
                              alpha = alpha_seq[j],
-                             foldid = foldid[,i],
+                             foldid = foldid,
                              lambda = store_lambda_seq[[k]][[j]],
                              penalty.factor = penalties[k,],
                              keep = T);
-        store_dev[[k]][[j]] = store_dev[[k]][[j]] + curr_fit$cvm/n_cv_rep;
+        store_dev[[k]][[j]] = store_dev[[k]][[j]] + curr_fit$cvm;
         if(is.null(store_lambda_seq[[k]][[j]])) {store_lambda_seq[[k]][[j]] = curr_fit$lambda;}
         #assign(paste0("alpha",j,"_model",k,"_fitted_prob"), get(paste0("fitted",k,"_mod",j))$fit.preval[,1:length(get(paste0("alpha",j,"_model",k,"_lambda_seq")))]);
       } 
       
       lasso_fit = cv.glmnet(x = std_x_train, 
-                           y = y_train,
-                           standardize = F,
-                           family = "binomial",
-                           alpha = 1,
-                           foldid = foldid[,i],
-                           lambda = store_lambda_seq_lasso[[k]][[1]],
-                           penalty.factor = penalties[k,],
-                           keep = T);
-      store_dev_lasso[[k]][[1]] = store_dev_lasso[[k]][[1]] + lasso_fit$cvm/n_cv_rep;
+                            y = y_train,
+                            standardize = F,
+                            family = "binomial",
+                            alpha = 1,
+                            foldid = foldid,
+                            lambda = store_lambda_seq_lasso[[k]][[1]],
+                            penalty.factor = penalties[k,],
+                            keep = T);
+      store_dev_lasso[[k]][[1]] = store_dev_lasso[[k]][[1]] + lasso_fit$cvm;
       if(is.null(store_lambda_seq_lasso[[k]][[1]])) {store_lambda_seq_lasso[[k]][[1]] = lasso_fit$lambda;} 
       
-    }
     cat(k,"\n");
   }
   
@@ -148,7 +158,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   }
   best_dev = mapply("[[",store_dev,which_best_alpha);
   if (class(best_dev)=="matrix"){
-  best_dev = as.list(data.frame(mapply("[[",store_dev,which_best_alpha)));
+    best_dev = as.list(data.frame(mapply("[[",store_dev,which_best_alpha)));
   }
   best_dev_lasso = mapply("[[",store_dev_lasso,which_best_alpha_lasso);
   if (class(best_dev_lasso)=="matrix"){
@@ -158,7 +168,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   which_best_lambda_lasso = unlist(lapply(best_dev_lasso, which.min));
   best_lambda = mapply("[", best_lambda_seq, which_best_lambda);
   best_lambda_lasso = mapply("[",best_lambda_seq_lasso, which_best_lambda_lasso)
-
+  
   #And now we fit the final models using our optimal values of lambda and alpha for each penalty type:
   store_coefs = coefs_lasso = matrix(0, nrow = n_penalties, ncol = p1 + p2, dimnames = list(rownames(penalties), NULL));
   store_fits = fits_lasso = matrix(0, nrow = n_penalties, ncol = n_test, dimnames = list(rownames(penalties), NULL));
@@ -173,15 +183,15 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
                       penalty.factor = penalties[k,]);
     
     lasso_fit = glmnet(x = std_x_train, 
-                      y = y_train,
-                      standardize = F,
-                      family = "binomial",
-                      alpha = 1,
-                      lambda = best_lambda_seq_lasso[[k]],
-                      penalty.factor = penalties[k,]);
+                       y = y_train,
+                       standardize = F,
+                       family = "binomial",
+                       alpha = 1,
+                       lambda = best_lambda_seq_lasso[[k]],
+                       penalty.factor = penalties[k,]);
     
-    store_coefs[k,] = coef(curr_fit)[-1, which_best_lambda[k]]/scale_x_train;
-    coefs_lasso[k,] = coef(lasso_fit)[-1,which_best_lambda_lasso[k]]/scale_x_train;
+    store_coefs[k,] = coef(curr_fit)[-1, which_best_lambda[k]];
+    coefs_lasso[k,] = coef(lasso_fit)[-1,which_best_lambda_lasso[k]];
     store_fits[k,] = drop(predict(curr_fit, std_x_test, s = best_lambda[k], type="response"));
     fits_lasso[k,] = drop(predict(lasso_fit, std_x_test, s = best_lambda_lasso[k], type="response"));
     store_assess[k,"brier"] = mean((y_test - store_fits[k,])**2);
@@ -191,7 +201,6 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   }
   
   #Finally, we determine which of the five models is best overall for each penalty combination:
-  #selected_penalties_1 = apply(best_dev,2, min); 
   selected_penalties_1 = lapply(best_dev, min);
   selected_penalties_2 = penalty_exclude * unlist(selected_penalties_1); 
   selected_penalties = apply(selected_penalties_2, 2, which.min);
@@ -201,10 +210,10 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
                      lambda = best_lambda);
   rownames(tuning_par) = rownames(store_coefs);
   tuning_par_lasso = cbind(alpha = 1, 
-                     lambda = best_lambda_lasso);
+                           lambda = best_lambda_lasso);
   rownames(tuning_par_lasso) = rownames(store_coefs);
   
-  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_cv_rep = n_cv_rep, n_folds = n_folds), 
+  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_folds = n_folds), 
               selected_penalties = selected_penalties,
               store_coefs = store_coefs, 
               store_fits = store_fits,
@@ -214,8 +223,10 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   
 }
 
-#dosgl performs a sparse-group lasso on a design matrix and outcome vector
-dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
+#netsgl fits a sparse group lasso and group lasso to the imputed data; it does not
+#consolidate across cross-validations to deal with the imputations
+
+sglimp <- function(dat, n_train, p1, p2, n_folds){
   
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
@@ -223,16 +234,10 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
   n_test = nrow(dat) - n_train;
   
   y_train <- dat[1:n_train,"y"];
-  x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
-  x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
+  std_x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
+  std_x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
   y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
   
-  #We standardize our design matrix:
-  center_x_train = apply(x_train,2,mean,na.rm=T);
-  scale_x_train = apply(x_train,2,sd,na.rm=T);
-  std_x_train = scale(x_train,center = center_x_train, scale = scale_x_train);
-  #We standardize our simulated test set to the same standard:
-  std_x_test = scale(x_test,center = center_x_train, scale = scale_x_train);
   mydat = list(x = std_x_train, y = y_train)
   
   #We initialize values to store the deviance and lambda sequence 
@@ -244,9 +249,7 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
   #We create a vector to tell SGL which group each covariate belongs to:
   myindex <- c(rep(1,p1),rep(2,p2));
   
-  #Then we cross-validate and fit a model for each alpha
-  for(i in 1:n_cv_rep) {
-    #First fitting a sparse group lasso with alpha = 0.95:
+  #First fitting a sparse group lasso with alpha = 0.95:
     fitted_sgl =
       cvSGL(data = mydat, 
             index = myindex, 
@@ -256,25 +259,22 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
             nlam = 100,
             nfold = n_folds, 
             lambdas = modelsgl_lambda_seq);
-    modelsgl_dev = modelsgl_dev + fitted_sgl$lldiff/n_cv_rep;
+    modelsgl_dev = modelsgl_dev + fitted_sgl$lldiff;
     if(is.null(modelsgl_lambda_seq)) {modelsgl_lambda_seq = fitted_sgl$fit$lambdas;}
     
-    #And now fitting a grouped lasso with alpha = 0:
+  #And now fitting a grouped lasso with alpha = 0:
     fitted_group = 
-           cvSGL(data = mydat, 
-                 index = myindex, 
-                 type = "logit",
-                 standardize = F,
-                 alpha = 0,
-                 nlam = 100,
-                 nfold = n_folds,
-                 lambdas = modelgroup_lambda_seq);
-    modelgroup_dev = modelgroup_dev + fitted_group$lldiff/n_cv_rep;
+      cvSGL(data = mydat, 
+            index = myindex, 
+            type = "logit",
+            standardize = F,
+            alpha = 0,
+            nlam = 100,
+            nfold = n_folds,
+            lambdas = modelgroup_lambda_seq);
+    modelgroup_dev = modelgroup_dev + fitted_group$lldiff;
     if(is.null(modelgroup_lambda_seq)) {modelgroup_lambda_seq = fitted_group$fit$lambdas;}
     
-    cat(i,"\n");
-  }
-  
   #We locate the best lambda value for each model
   sgl_which_lambda = which.min(modelsgl_dev);
   sgl_lambda_select = modelsgl_lambda_seq[sgl_which_lambda];
@@ -295,20 +295,20 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
                    nlam = 100,#Weird thing is that even though we provide the 'modelsgl_lambda_seq', we still need to specify this length
                    lambdas = modelsgl_lambda_seq);
   
-  store_coefs["sgl",] = fitted_sgl$beta[,sgl_which_lambda]/scale_x_train;
+  store_coefs["sgl",] = fitted_sgl$beta[,sgl_which_lambda];
   store_fits["sgl",] = drop(predictSGL(fitted_sgl, std_x_test, sgl_which_lambda));
   store_assess["sgl","brier"] = mean((y_test - store_fits["sgl",])**2);
   store_assess["sgl","auc"] = roc(response = y_test, predictor = store_fits["sgl",], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
-
-  fitted_group = SGL(data = mydat,
-                   index = myindex, 
-                   type = "logit",
-                   standardize = F,
-                   alpha = 0.95,
-                   nlam = 100,#Weird thing is that even though we provide the 'modelgroup_lambda_seq', we still need to specify this length
-                   lambdas = modelgroup_lambda_seq);
   
-  store_coefs["group",] = fitted_group$beta[,group_which_lambda]/scale_x_train;
+  fitted_group = SGL(data = mydat,
+                     index = myindex, 
+                     type = "logit",
+                     standardize = F,
+                     alpha = 0.95,
+                     nlam = 100,#Weird thing is that even though we provide the 'modelgroup_lambda_seq', we still need to specify this length
+                     lambdas = modelgroup_lambda_seq);
+  
+  store_coefs["group",] = fitted_group$beta[,group_which_lambda];
   store_fits["group",] = drop(predictSGL(fitted_group, std_x_test, group_which_lambda));
   store_assess["group","brier"] = mean((y_test - store_fits["group",])**2);
   store_assess["group","auc"] = roc(response = y_test, predictor = store_fits["group",], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
@@ -317,22 +317,13 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
                      lambda = c(sgl_lambda_select, group_lambda_select));
   rownames(tuning_par) = c("sgl","group");
   
-  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, n_cv_rep = n_cv_rep, n_folds = n_folds), 
+  return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, n_folds = n_folds), 
               store_coefs = store_coefs, 
               store_fits = store_fits,
               store_assess = store_assess,
               tuning_par = tuning_par));
   
 }
-
-## PART 3: FUNCTIONS TO USE OUTPUT FROM PENALIZED REGRESSION FUNCTIONS AND ASSESS PERFORMANCE
-
-#is.integer0 is needed to identify vectors of length 0
-is.integer0 <- function(x)
-{is.integer(x) && length(x) == 0L}
-
-#subnet is used on the mynet output to extract the different net penalties
-#choose from quelmod in c("ipf_en","en","ms");
 
 subnet <- function(x, quelmod){ 
   
@@ -357,7 +348,7 @@ sublasso <- function(x){
 
 #subsgl is used on the mysgl output to extract the different sgl penalties
 subsgl <- function(x,quelmod) {
-
+  
   return(list(setup = x$setup, 
               tuning_par = c(x$tuning_par[quelmod,]),
               coefs = x$store_coefs[quelmod,],
@@ -369,28 +360,6 @@ getassess <- function(x, quelmod){
   return(x$assess[quelmod])
 }
 
-getmse <- function(x,quelmod,scen){
-  estcoef <- knowncoef[[scen]]
-  p1 <- length(estcoef)
-  unestcoef <- mystcoef[[scen]]
-  p2 <- length(unestcoef)
-  overallcoef <- c(estcoef, unestcoef)
-  
-  if (quelmod=='overall'){
-    predcoef <- x$coefs
-    mse <- sqrt(sum((overallcoef-predcoef)**2))
-  } else if (quelmod=='est'){
-    predcoef <- x$coefs[1:p1]
-    mse <- sqrt(sum((estcoef-predcoef)**2))
-  } else if (quelmod=='unest'){
-    predcoef <- x$coefs[(p1+1):(p1+p2)]
-    mse <- sqrt(sum((unestcoef-predcoef)**2))
-  }
-  return(mse)
+getbeta <- function(x){
+  return(x$coefs)
 }
-
-gettuning <- function(x,param){
-  tuned <- x$tuning_par[param]
-  return(tuned)
-}
-
