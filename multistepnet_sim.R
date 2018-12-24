@@ -22,10 +22,10 @@ library(glmnet);
 library(SGL);
 
 #Set working directory:
-setwd("~/Desktop/Research/Phil Elastic Net/Final code");
+setwd("~/Desktop/Research/Phil Elastic Net/Results 5");
 
 #Set source for multistepnet_functions_revised:
-source("~/Desktop/Research/Phil Elastic Net/Final code/multistepnet_functions_revised.R");
+source("~/Desktop/Research/Phil Elastic Net/GitHub Work/multistepnet_functions_revised.R");
 
 # Calculate the number of cores
 no_cores <- detectCores() - 1
@@ -39,7 +39,7 @@ reps <- 500
 #The true intercept for our model goes here:
 trueintercept <- -1.39 #corresponds to prevalence of 0.2 for the average person
 
-#We pick a sample size of 200
+#We pick a sample size of 200 or 1000;
 n_train <- 200;
 n_test <- 1e3;
 
@@ -72,26 +72,14 @@ truebeta_myst <- rep(0,30);
 #truebeta_myst <- c(rep(0.05, 5), rep(0,85))
 
 #Scenario 3A
-#truebeta_known <- rep(0.14, 20)
-#truebeta_myst <- rep(0,480)
-
-#Scenario 3B
-#truebeta_known <- rep(0.11, 20)
-#truebeta_myst <- c(0.6, rep(0,479))
-
-#Scenario 3C
-#truebeta_known <- rep(0.13, 20)
-#truebeta_myst <- c(rep(0.05,5),rep(0,475))
-
-#Scenario 4A
 #truebeta_known <- c(rep(0.26, 10),rep(0,10))
 #truebeta_myst <- rep(0,480)
 
-#Scenario 4B
+#Scenario 3B
 #truebeta_known <- c(rep(0.2,10),rep(0,10))
 #truebeta_myst <- c(0.6, rep(0,479))
 
-#Scenario 4C
+#Scenario 3C
 #truebeta_known <- c(rep(0.25, 10),rep(0,10))
 #truebeta_myst <- c(rep(0.05, 5), rep(0,475))
 
@@ -102,15 +90,6 @@ which_set2 = p1 + (1:p2);
 truebetas = c(truebeta_known,truebeta_myst); #concatenate 
 abs_truebetas = abs(truebetas);
 small_number = .Machine$double.eps^0.5;
-
-#And for future use, we will find the indices of the true/false and unknown/known covariates:
-trueind <- which(abs_truebetas > small_number)
-trueeind <- which(abs_truebetas[which_set1] > small_number)
-trueuind <- which(abs_truebetas[which_set2] > small_number) + p1
-
-falseind <- which(abs_truebetas < small_number)
-falseestind <- intersect(which_set1, which(abs_truebetas < small_number));
-falseunind <- intersect(which_set2, which(abs_truebetas < small_number));
 
 #We put the compound symmetric correlation here:
 pairwise_correlation = 0.2;
@@ -144,6 +123,7 @@ mysgl <- mclapply(bigdesign,dosgl,n_train = n_train, p1 = p1, p2 = p2, n_cv_rep 
                   mc.cores=no_cores,mc.cleanup=TRUE)
 
 #We would want to save this workspace for each scenario
-#save.image('/home/ecchase/ElasticNet/Scen.RData')
+#save(list=c("mynet"), file=)
+#save(list=c("mysgl"), file=)
 
 #To process the results from this code, we would move to multistepnet_eval.R
