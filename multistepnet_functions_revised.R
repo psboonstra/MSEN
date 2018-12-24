@@ -47,12 +47,15 @@ makey <- function(design, trueintercept, truebetas) {
 #the input is a design matrix and other variables used in multistepnet_sim.R
 
 donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
+  require(glmnet);
+  require(pROC);
+  
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
   #We separate out the design matrix and outcome vector:
   n_test = nrow(dat) - n_train;
   
-  y_train <- factor(1 * dat[1:n_train,"y"]);
+  y_train <- factor(1 * dat[1:n_train,"y"], levels = c(0,1));
   x_train <- dat[1:n_train, which(colnames(dat) != "y"),drop=F];
   x_test <- dat[n_train + (1:n_test), which(colnames(dat) != "y"),drop=F];
   y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
@@ -138,6 +141,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   
   which_best_alpha = apply(matrix(rapply(store_dev, min), nrow = n_penalties, byrow = T), 1, which.min);
   which_best_alpha_lasso = apply(matrix(rapply(store_dev_lasso, min), nrow = n_penalties, byrow = T), 1, which.min);
+
   best_lambda_seq = mapply("[[",store_lambda_seq, which_best_alpha); 
   if (class(best_lambda_seq)=="matrix"){
     best_lambda_seq = as.list(data.frame(best_lambda_seq));
@@ -154,6 +158,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   if (class(best_dev_lasso)=="matrix"){
     best_dev_lasso = as.list(data.frame(mapply("[[",store_dev_lasso,which_best_alpha_lasso)));
   }
+
   which_best_lambda = unlist(lapply(best_dev, which.min));
   which_best_lambda_lasso = unlist(lapply(best_dev_lasso, which.min));
   best_lambda = mapply("[", best_lambda_seq, which_best_lambda);
@@ -216,6 +221,8 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
 
 #dosgl performs a sparse-group lasso on a design matrix and outcome vector
 dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
+  require(SGL);
+  require(pROC);
   
   stopifnot(p1 + p2 == ncol(dat) - 1);
   stopifnot(n_train < nrow(dat));
@@ -369,6 +376,7 @@ getassess <- function(x, quelmod){
   return(x$assess[quelmod])
 }
 
+
 getmse <- function(x,quelmod,scen){
   estcoef <- knowncoef[[scen]]
   p1 <- length(estcoef)
@@ -389,6 +397,31 @@ getmse <- function(x,quelmod,scen){
   return(mse)
 }
 
+
+#getys obtains the predicted values nets and IPF and then de-logits them
+getys <- function(x)
+{ predyraw <- x[[2]]
+predy <- exp(predyraw)/(1+exp(predyraw))
+return(predy)
+}
+
+#sglgetys obtains the predicted values for the sparse group lasso from the mysgl output; note
+#that the dosgl function already expits the predicted values, so we don't need to do so
+sglgetys <- function(x)
+{ predy <- x[[2]]
+return(predy)
+}
+
+# covariateeffect calculates the mean estimated effect over the established and unestablished covariates 
+covariateeffect <- function(x)
+{   small_number = .Machine$double.eps^0.5
+mycoefs <- x[[1]] #extracting coefficients and removing intercept
+if (is.null(names(mycoefs))==0){
+  if (names(mycoefs)[1]=="(Intercept)"){
+    mycoefs <- mycoefs[2:(p1+p2+1)]
+  }
+} 
+ 
 gettuning <- function(x,param){
   tuned <- x$tuning_par[param]
   return(tuned)
