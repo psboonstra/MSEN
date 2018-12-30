@@ -1,11 +1,11 @@
 ###################################################################################################
 
-## File name: multipstepnet_functions_revised.R
+## File name: functions.R
 ## Programmer: Elizabeth Chase
 ## Project: Multi-step elastic net, in collaboration with Phil Boonstra
 ## Date: Worked on from Oct. 1, 2017-June 1, 2018, then uploaded to GitHub in July 2018, where it 
 ##       underwent further revision 
-## Other related files: multistepnet_sim.R, multistepnet_eval.R, MSexample_functions.R
+## Other related files: run_sims.R, eval_sims.R
 ## Purpose: This file contains R functions that perform an elastic net, multi-step elastic net,
 ##          IPF-Lasso, and sparse group lasso. It also contains functions to process 
 ##          the output from the lasso functions and assess AUC, Brier score, sensitivity,
@@ -88,7 +88,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   n_alphas = length(alpha_seq);
   store_dev = store_dev_lasso = 
     store_lambda_seq_lasso = store_lambda_seq = vector("list",n_penalties);
-
+  
   for(k in 1:n_penalties) {#initialize values
     store_dev[[k]] = 
       store_lambda_seq[[k]] = vector("list",n_alphas);
@@ -124,14 +124,14 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
       } 
       
       lasso_fit = cv.glmnet(x = std_x_train, 
-                           y = y_train,
-                           standardize = F,
-                           family = "binomial",
-                           alpha = 1,
-                           foldid = foldid[,i],
-                           lambda = store_lambda_seq_lasso[[k]][[1]],
-                           penalty.factor = penalties[k,],
-                           keep = T);
+                            y = y_train,
+                            standardize = F,
+                            family = "binomial",
+                            alpha = 1,
+                            foldid = foldid[,i],
+                            lambda = store_lambda_seq_lasso[[k]][[1]],
+                            penalty.factor = penalties[k,],
+                            keep = T);
       store_dev_lasso[[k]][[1]] = store_dev_lasso[[k]][[1]] + lasso_fit$cvm/n_cv_rep;
       if(is.null(store_lambda_seq_lasso[[k]][[1]])) {store_lambda_seq_lasso[[k]][[1]] = lasso_fit$lambda;} 
       
@@ -141,7 +141,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   
   which_best_alpha = apply(matrix(rapply(store_dev, min), nrow = n_penalties, byrow = T), 1, which.min);
   which_best_alpha_lasso = apply(matrix(rapply(store_dev_lasso, min), nrow = n_penalties, byrow = T), 1, which.min);
-
+  
   best_lambda_seq = mapply("[[",store_lambda_seq, which_best_alpha); 
   if (class(best_lambda_seq)=="matrix"){
     best_lambda_seq = as.list(data.frame(best_lambda_seq));
@@ -152,18 +152,18 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   }
   best_dev = mapply("[[",store_dev,which_best_alpha);
   if (class(best_dev)=="matrix"){
-  best_dev = as.list(data.frame(mapply("[[",store_dev,which_best_alpha)));
+    best_dev = as.list(data.frame(mapply("[[",store_dev,which_best_alpha)));
   }
   best_dev_lasso = mapply("[[",store_dev_lasso,which_best_alpha_lasso);
   if (class(best_dev_lasso)=="matrix"){
     best_dev_lasso = as.list(data.frame(mapply("[[",store_dev_lasso,which_best_alpha_lasso)));
   }
-
+  
   which_best_lambda = unlist(lapply(best_dev, which.min));
   which_best_lambda_lasso = unlist(lapply(best_dev_lasso, which.min));
   best_lambda = mapply("[", best_lambda_seq, which_best_lambda);
   best_lambda_lasso = mapply("[",best_lambda_seq_lasso, which_best_lambda_lasso)
-
+  
   #And now we fit the final models using our optimal values of lambda and alpha for each penalty type:
   store_coefs = coefs_lasso = matrix(0, nrow = n_penalties, ncol = p1 + p2, dimnames = list(rownames(penalties), NULL));
   store_fits = fits_lasso = matrix(0, nrow = n_penalties, ncol = n_test, dimnames = list(rownames(penalties), NULL));
@@ -178,12 +178,12 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
                       penalty.factor = penalties[k,]);
     
     lasso_fit = glmnet(x = std_x_train, 
-                      y = y_train,
-                      standardize = F,
-                      family = "binomial",
-                      alpha = 1,
-                      lambda = best_lambda_seq_lasso[[k]],
-                      penalty.factor = penalties[k,]);
+                       y = y_train,
+                       standardize = F,
+                       family = "binomial",
+                       alpha = 1,
+                       lambda = best_lambda_seq_lasso[[k]],
+                       penalty.factor = penalties[k,]);
     
     store_coefs[k,] = coef(curr_fit)[-1, which_best_lambda[k]]/scale_x_train;
     coefs_lasso[k,] = coef(lasso_fit)[-1,which_best_lambda_lasso[k]]/scale_x_train;
@@ -206,7 +206,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
                      lambda = best_lambda);
   rownames(tuning_par) = rownames(store_coefs);
   tuning_par_lasso = cbind(alpha = 1, 
-                     lambda = best_lambda_lasso);
+                           lambda = best_lambda_lasso);
   rownames(tuning_par_lasso) = rownames(store_coefs);
   
   return(list(setup = list(dat = dat, n_train = n_train, p1 = p1, p2 = p2, alpha_seq = alpha_seq, n_cv_rep = n_cv_rep, n_folds = n_folds), 
@@ -268,14 +268,14 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
     
     #And now fitting a grouped lasso with alpha = 0:
     fitted_group = 
-           cvSGL(data = mydat, 
-                 index = myindex, 
-                 type = "logit",
-                 standardize = F,
-                 alpha = 0,
-                 nlam = 100,
-                 nfold = n_folds,
-                 lambdas = modelgroup_lambda_seq);
+      cvSGL(data = mydat, 
+            index = myindex, 
+            type = "logit",
+            standardize = F,
+            alpha = 0,
+            nlam = 100,
+            nfold = n_folds,
+            lambdas = modelgroup_lambda_seq);
     modelgroup_dev = modelgroup_dev + fitted_group$lldiff/n_cv_rep;
     if(is.null(modelgroup_lambda_seq)) {modelgroup_lambda_seq = fitted_group$fit$lambdas;}
     
@@ -306,14 +306,14 @@ dosgl <- function(dat, n_train, p1, p2, n_cv_rep, n_folds){
   store_fits["sgl",] = drop(predictSGL(fitted_sgl, std_x_test, sgl_which_lambda));
   store_assess["sgl","brier"] = mean((y_test - store_fits["sgl",])**2);
   store_assess["sgl","auc"] = roc(response = y_test, predictor = store_fits["sgl",], smooth=FALSE, auc=TRUE, ci = FALSE, plot=FALSE)$auc;
-
+  
   fitted_group = SGL(data = mydat,
-                   index = myindex, 
-                   type = "logit",
-                   standardize = F,
-                   alpha = 0.95,
-                   nlam = 100,#Weird thing is that even though we provide the 'modelgroup_lambda_seq', we still need to specify this length
-                   lambdas = modelgroup_lambda_seq);
+                     index = myindex, 
+                     type = "logit",
+                     standardize = F,
+                     alpha = 0.95,
+                     nlam = 100,#Weird thing is that even though we provide the 'modelgroup_lambda_seq', we still need to specify this length
+                     lambdas = modelgroup_lambda_seq);
   
   store_coefs["group",] = fitted_group$beta[,group_which_lambda]/scale_x_train;
   store_fits["group",] = drop(predictSGL(fitted_group, std_x_test, group_which_lambda));
@@ -364,7 +364,7 @@ sublasso <- function(x){
 
 #subsgl is used on the mysgl output to extract the different sgl penalties
 subsgl <- function(x,quelmod) {
-
+  
   return(list(setup = x$setup, 
               tuning_par = c(x$tuning_par[quelmod,]),
               coefs = x$store_coefs[quelmod,],
@@ -413,15 +413,16 @@ return(predy)
 }
 
 # covariateeffect calculates the mean estimated effect over the established and unestablished covariates 
-covariateeffect <- function(x)
-{   small_number = .Machine$double.eps^0.5
-mycoefs <- x[[1]] #extracting coefficients and removing intercept
-if (is.null(names(mycoefs))==0){
-  if (names(mycoefs)[1]=="(Intercept)"){
-    mycoefs <- mycoefs[2:(p1+p2+1)]
-  }
-} 
- 
+covariateeffect <- function(x) {  
+  small_number = .Machine$double.eps^0.5
+  mycoefs <- x[[1]] #extracting coefficients and removing intercept
+  if (is.null(names(mycoefs))==0){
+    if (names(mycoefs)[1]=="(Intercept)"){
+      mycoefs <- mycoefs[2:(p1+p2+1)]
+    }
+  } 
+}
+
 gettuning <- function(x,param){
   tuned <- x$tuning_par[param]
   return(tuned)
