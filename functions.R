@@ -1,7 +1,7 @@
 ###################################################################################################
 
 ## File name: functions.R
-## Programmer: Elizabeth Chase
+## Programmer: Elizabeth Chase, with minor edits by Phil Boonstra. 
 ## Project: Multi-step elastic net, in collaboration with Phil Boonstra
 ## Date: Worked on from Oct. 1, 2017-June 1, 2018, then uploaded to GitHub in July 2018, where it 
 ##       underwent further revision 
@@ -16,7 +16,7 @@
 ## PART 1: FUNCTIONS TO SIMULATE DATA
 
 #expit is needed for the logistic regression setting 
-expit = function(x) {1/(1+exp(-x));}
+expit = function(x) {plogis(x);}
 
 #makex simulates a design matrix according to our preset coefficient, sample size, and correlation values:
 makex <- function(n,p,chol_var) {
@@ -61,7 +61,7 @@ donet <- function(dat, n_train, p1, p2, alpha_seq, n_cv_rep, n_folds){
   y_test <- drop(dat[n_train + (1:n_test), which(colnames(dat) == "y"),drop=F]);
   
   #We standardize our design matrix:
-  center_x_train = apply(x_train,2,mean,na.rm=T);
+  center_x_train = colMeans(x_train,na.rm=T);
   scale_x_train = apply(x_train,2,sd,na.rm=T);
   std_x_train = scale(x_train,center = center_x_train, scale = scale_x_train);
   #We standardize our simulated test set to the same standard:
