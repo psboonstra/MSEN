@@ -18,10 +18,10 @@ library(pROC);
 library(stringr);
 
 #Set working directory:
-setwd("~/Desktop/Research/Phil Elastic Net/Results/Final Final Results")
+setwd("~/Desktop/Research/Phil Elastic Net/Cluster Submissions 4/Results")
 
 #Set source for multistepnet_functions_revised:
-source("~/Desktop/Research/Phil Elastic Net/Final code/multistepnet_functions_revised.R");
+source("~/Desktop/Research/Phil Elastic Net/GitHub Work/multistepnet_functions_revised.R");
 
 # Calculate the number of cores
 no_cores <- detectCores() - 1
