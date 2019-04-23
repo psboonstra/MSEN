@@ -326,8 +326,9 @@ sglimp <- function(dat, n_train, p1, p2, n_folds){
 }
 
 subnet <- function(x, quelmod){ 
-  
-  penalty_pick = x$selected_penalties[quelmod];
+  if (quelmod=="autozero") {
+    penalty_pick = 1
+  } else {penalty_pick = x$selected_penalties[quelmod]};
   
   return(list(setup = x$setup, 
               tuning_par = c(x$tuning_par[penalty_pick,],phi_cat = as.numeric(penalty_pick)),

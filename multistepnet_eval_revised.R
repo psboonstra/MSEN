@@ -20,7 +20,7 @@ library(gridExtra)
 library(plyr);
 
 #Set working directory:
-setwd("~/Desktop/Research/Phil Elastic Net/Results 5")
+setwd("~/Desktop/Research/Phil Elastic Net/Stat Med Revision Simulations")
 
 #Set source for multistepnet_functions_revised:
 source("~/Desktop/Research/Phil Elastic Net/GitHub Work/multistepnet_functions_revised.R");
@@ -31,51 +31,70 @@ no_cores <- detectCores() - 1
 # Initiate cluster
 cl <- makeCluster(no_cores)
 
-scenarios <- c('1A', '1B','1C','2A','2B','2C', '3A', '3B', '3C')
+scenarios <- c('1A','1Ap','1B','1Bp','1C','1Cp','2A','2Ap','2B','2Bp','2C','2Cp', '3A', '3Ap', '3B',
+               '3Bp', '3C', '3Cp', '4A', '4Ap', '4B', '4Bp', '4C', '4Cp')
 
-methods <- c('ipfen','ipflasso', 'ms','sgl','glasso')
-knowncoef <- list('1A' = rep(0.26, 10), '1B' = rep(0.2,10), '1C' = rep(0.25,10), 
-                  '2A' = rep(0.26, 10), '2B' = rep(0.2, 10), '2C' = rep(0.25, 10), 
-                  '3A' = c(rep(0.26, 10),rep(0,10)), '3B' = c(rep(0.2,10),rep(0,10)), 
-                  '3C' = c(rep(0.25, 10),rep(0,10)))
+methods <- c('ipfen','ipflasso', 'ms', 'autozero', 'sgl','glasso')
 
-mystcoef <- list('1A' = rep(0,30), '1B' = c(0.6, rep(0,29)), '1C' = c(rep(0.05, 5), rep(0,25)), 
-                  '2A' = rep(0,90), '2B' = c(0.6, rep(0,89)), '2C' = c(rep(0.05, 5), rep(0,85)),
-                  '3A' = rep(0,480), '3B' = c(0.6, rep(0,479)), '3C'= c(rep(0.05, 5), rep(0,475)))
-                   
+knowncoef <- list('1A' = rep(0.26, 10), '1Ap' = rep(0.26, 10), '1B' = rep(0.2,10), '1Bp' = rep(0.2,10),
+                  '1C' = rep(0.25,10), '1Cp' = rep(0.25,10), '2A' = rep(0.26, 10),'2Ap' = rep(0.26, 10),
+                  '2B' = rep(0.2, 10), '2Bp' = rep(0.2, 10), '2C' = rep(0.25, 10), '2Cp' = rep(0.25, 10),
+                  '3A' = c(rep(0.26, 10),rep(0,10)), '3Ap' = c(rep(0.26, 10),rep(0,10)), 
+                  '3B' = c(rep(0.2,10),rep(0,10)), '3Bp' = c(rep(0.2,10),rep(0,10)), 
+                  '3C' = c(rep(0.25, 10),rep(0,10)), '3Cp' = c(rep(0.25, 10),rep(0,10)),
+                  '4A' = rep(0.14, 20), '4Ap' = rep(0.14, 20), '4B' = rep(0.11, 20), 
+                  '4Bp' = rep(0.11, 20), '4C' = rep(0.13, 20), '4Cp' =  rep(0.13, 20))
+
+mystcoef <- list('1A' = rep(0,30), '1Ap' = rep(0,30), '1B' = c(0.6, rep(0,29)), '1Bp' = c(0.6, rep(0,29)),
+                 '1C' = c(rep(0.05, 5), rep(0,25)), '1Cp' = c(rep(0.05, 5), rep(0,25)), '2A' = rep(0,90),
+                 '2Ap' = rep(0,90), '2B' = c(0.6, rep(0,89)), '2Bp' = c(0.6, rep(0,89)), 
+                 '2C' = c(rep(0.05, 5), rep(0,85)), '2Cp' = c(rep(0.05, 5), rep(0,85)), 
+                 '3A' = rep(0,480), '3Ap' = rep(0,480), '3B' = c(0.6, rep(0,479)), 
+                 '3Bp' = c(0.6, rep(0,479)), '3C'= c(rep(0.05, 5), rep(0,475)), '3Cp'= c(rep(0.05, 5), rep(0,475)),
+                 '4A' = rep(0,480), '4Ap' = rep(0,480), '4B' = c(0.6, rep(0,479)), 
+                 '4Bp' = c(0.6, rep(0,479)), '4C' = c(rep(0.05,5),rep(0,475)), '4Cp' = c(rep(0.05,5),rep(0,475)))
+
+Dat <- data.frame("Scenario"=NA, "Method"=NA, "AUC"=NA, "Brier"=NA, "eMSE"=NA, "uMSE"=NA, "MSE"=NA,
+                  "Lambda" = NA, "Alpha" = NA, "Phi" = NA)
+EnTun <- data.frame("Scenario"=NA, "Lambda" = NA, "Alpha" = NA, "Phi" = NA)
+i <- 1
+
 Dat <- data.frame("Scenario"=NA, "Method"=NA, "AUC"=NA, "Brier"=NA, "eMSE"=NA, "uMSE"=NA, "MSE"=NA,
                   "Lambda" = NA, "Alpha" = NA, "Phi" = NA)
 EnTun <- data.frame("Scenario"=NA, "Lambda" = NA, "Alpha" = NA, "Phi" = NA)
 
 #Result extraction and cleaning
 for (i in 1:length(scenarios)){
- load(paste0("Scen", scenarios[i], "_net.RData"))
- load(paste0("Scen", scenarios[i], "_sgl.RData"))
- mynet <- get(paste0("mynet", scenarios[i]))
- mysgl <- get(paste0("mysgl", scenarios[i]))
- 
- v <- c(paste0("mynet", scenarios[i]), paste0("mysgl", scenarios[i]))
- rm(list=v)
- 
+  load(paste0("Scen", scenarios[i], "_net.RData"))
+  load(paste0("Scen", scenarios[i], "_sgl.RData"))
+  mynet <- get(paste0("mynet", scenarios[i]))
+  mysgl <- get(paste0("mysgl", scenarios[i]))
+  
+  v <- c(paste0("mynet", scenarios[i]), paste0("mysgl", scenarios[i]))
+  rm(list=v)
+  
   assign(paste0("en",scenarios[i]),mclapply(mynet,subnet, quelmod="en", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                          mc.cores=no_cores,mc.cleanup=TRUE))
-
+                                            mc.cores=no_cores,mc.cleanup=TRUE))
+  
   assign(paste0("ipfen",scenarios[i]),mclapply(mynet,subnet, quelmod="ipf_en", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                          mc.cores=no_cores,mc.cleanup=TRUE))
-
+                                               mc.cores=no_cores,mc.cleanup=TRUE))
+  
   assign(paste0("ms",scenarios[i]),mclapply(mynet,subnet, quelmod="ms", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                          mc.cores=no_cores,mc.cleanup=TRUE))
-
+                                            mc.cores=no_cores,mc.cleanup=TRUE))
+  
   assign(paste0("ipflasso",scenarios[i]),mclapply(mynet,sublasso, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                          mc.cores=no_cores,mc.cleanup=TRUE))
-
+                                                  mc.cores=no_cores,mc.cleanup=TRUE))
+  
+  assign(paste0("autozero",scenarios[i]),mclapply(mynet,subnet, quelmod="autozero", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+                                                  mc.cores=no_cores,mc.cleanup=TRUE))
+  
   rm(mynet)
   
   assign(paste0("sgl",scenarios[i]),mclapply(mysgl,subsgl, quelmod="sgl", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                          mc.cores=no_cores,mc.cleanup=TRUE))
-
+                                             mc.cores=no_cores,mc.cleanup=TRUE))
+  
   assign(paste0("glasso",scenarios[i]),mclapply(mysgl,subsgl, quelmod="group", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
-                                           mc.cores=no_cores,mc.cleanup=TRUE))
+                                                mc.cores=no_cores,mc.cleanup=TRUE))
   
   rm(mysgl)
   
@@ -90,7 +109,7 @@ for (i in 1:length(scenarios)){
   baselineMSEu <- unlist(mclapply(get(paste0("en" ,scenarios[i])),getmse, quelmod="unest", scen = i, mc.preschedule=TRUE,mc.set.seed=TRUE,
                                   mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
   lambda <- unlist(mclapply(get(paste0("en", scenarios[i])), gettuning, param="lambda", mc.preschedule=TRUE,mc.set.seed=TRUE,
-                  mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
+                            mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
   alpha <- unlist(mclapply(get(paste0("en", scenarios[i])), gettuning, param="alpha", mc.preschedule=TRUE,mc.set.seed=TRUE,
                            mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
   phi <- unlist(mclapply(get(paste0("en", scenarios[i])), gettuning, param="phi_cat", mc.preschedule=TRUE,mc.set.seed=TRUE,
@@ -113,9 +132,9 @@ for (i in 1:length(scenarios)){
     lambda <- unlist(mclapply(get(paste0(methods[j], scenarios[i])), gettuning, param="lambda", mc.preschedule=TRUE,mc.set.seed=TRUE,
                               mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
     alpha <- unlist(mclapply(get(paste0(methods[j], scenarios[i])), gettuning, param="alpha", mc.preschedule=TRUE,mc.set.seed=TRUE,
-                              mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
+                             mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
     phi <- unlist(mclapply(get(paste0(methods[j], scenarios[i])), gettuning, param="phi_cat", mc.preschedule=TRUE,mc.set.seed=TRUE,
-                              mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
+                           mc.silent=TRUE, mc.cores=no_cores,mc.cleanup=TRUE))
     
     Method <- rep(methods[j], 500)
     subDAT <- data.frame("Scenario"=Scenario, "Method"=Method, "AUC"=AUC, "Brier"=Brier, "eMSE"=eMSE,
@@ -123,67 +142,100 @@ for (i in 1:length(scenarios)){
     Dat <- rbind(Dat, subDAT)
     rm(subDAT)
   }
+  w <- c(paste0("en",scenarios[i]), paste0("ipfen",scenarios[i]), paste0("ms",scenarios[i]),
+         paste0("ipflasso",scenarios[i]), paste0("autozero",scenarios[i]), paste0("sgl",scenarios[i]),
+         paste0("glasso",scenarios[i]))
+  rm(list=w)
 }
 
-save(list=c("Dat"), file='Dat.RData')
-save(list=c("EnTun"), file='En.RData')
+save(list=c("Dat"), file='/home/ecchase/ElasticNet/Dat_final.RData')
+save(list=c("EnTun"), file='/home/ecchase/ElasticNet/En_final.RData')
 
-load("Datp.RData")
-
+load("Dat_final.RData")
+Dat <- Dat[-1,]
 Dat$Method <- factor(Dat$Method)
-levels(Dat$Method)[levels(Dat$Method)=="ms"] <- "msn"
-
+levels(Dat$Method)[levels(Dat$Method)=="ms"] <- "MSN"
+levels(Dat$Method)[levels(Dat$Method)=="autozero"] <- "Auto-Zero"
+levels(Dat$Method)[levels(Dat$Method)=="glasso"] <- "GLASSO"
+levels(Dat$Method)[levels(Dat$Method)=="ipflasso"] <- "IPF-Lasso"
+levels(Dat$Method)[levels(Dat$Method)=="sgl"] <- "SGL"
+Dat <- Dat[Dat$Method!= "ipfen", ]
 Dat$Scenario <- factor(Dat$Scenario)
-levels(Dat$Scenario)[levels(Dat$Scenario)=="1Ap"] <- "1A"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="1Bp"] <- "1B"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="1Cp"] <- "1C"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="2Ap"] <- "2A"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="2Bp"] <- "2B"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="2Cp"] <- "2C"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="3Ap"] <- "3A"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="3Bp"] <- "3B"
-levels(Dat$Scenario)[levels(Dat$Scenario)=="3Cp"] <- "3C"
+
+Dat_small <- Dat[grepl('p',Dat$Scenario)==0, ]
+Dat_big <- Dat[grepl('p', Dat$Scenario)==1, ]
+
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="1Ap"] <- "1A"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="1Bp"] <- "1B"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="1Cp"] <- "1C"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="2Ap"] <- "2A"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="2Bp"] <- "2B"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="2Cp"] <- "2C"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="3Ap"] <- "3A"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="3Bp"] <- "3B"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="3Cp"] <- "3C"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="4Ap"] <- "4A"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="4Bp"] <- "4B"
+levels(Dat_big$Scenario)[levels(Dat_big$Scenario)=="4Cp"] <- "4C"
 
 #Table 1: sensitivity/specificity results
 
 #Plot 1: log(relative AUC)
-p1 <- ggplot(Dat, aes(Scenario, AUC))
-AUC <- p1 + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("log(Relative AUC)") +
+p1 <- ggplot(Dat_small, aes(Scenario, AUC))
+AUC2 <- p1 + geom_boxplot(aes(fill=Method), color="black", lwd=0.2,  
+                          outlier.shape=NA, position=position_dodge2(padding=0.3)) + ylab("log(Relative AUC)") +
   coord_cartesian(ylim=c(-0.08,0.08))  
 
+p2 <- ggplot(Dat_big, aes(Scenario, AUC))
+AUC10 <- p2 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2, position=position_dodge2(padding=0.3)) + 
+  ylab("log(Relative AUC)") + coord_cartesian(ylim=c(-0.03, 0.06)) 
+
 #Plot 2: log(relative Brier score)
-p <- ggplot(Dat, aes(Scenario, Brier))
-Brier <- p + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("Log(Relative Brier Score)") 
+p3 <- ggplot(Dat_small, aes(Scenario, Brier))
+Brier2 <- p3 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2, position=position_dodge2(padding=0.3)) + 
+  ylab("Log(Relative Brier Score)") 
+
+p4 <- ggplot(Dat_big, aes(Scenario, Brier))
+Brier10 <- p4 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2, position=position_dodge2(padding=0.3)) + 
+  ylab("Log(Relative Brier Score)") + coord_cartesian(ylim=c(-.1, 0.125))
 
 #Plot 3: log(rMSE)--overall, and stratified by established and unestablished
 #Now of established rMSE and unestablished rMSE
-p2 <- ggplot(Dat, aes(Scenario, eMSE))
-emse <- p2 + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("log(Relative MSE), established") 
+p5 <- ggplot(Dat_small, aes(Scenario, eMSE))
+emse2 <- p5 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2) + ylab("log(Relative MSE), established") 
 
-p3 <- ggplot(Dat, aes(Scenario, uMSE))
-umse <- p3 + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("log(Relative MSE), unestablished") 
+p6 <- ggplot(Dat_big, aes(Scenario, eMSE))
+emse10 <- p6 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2) + ylab("log(Relative MSE), established") 
+
+p7 <- ggplot(Dat_small, aes(Scenario, uMSE))
+umse2 <- p7 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2) + ylab("log(Relative MSE), unestablished") 
+
+p8 <- ggplot(Dat_big, aes(Scenario, uMSE))
+umse10 <- p8 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2) + ylab("log(Relative MSE), unestablished") 
 
 #Now of overall MSE
-p4 <- ggplot(Dat, aes(Scenario, MSE))
-mse <- p4 + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("log(Relative MSE)") 
+p9 <- ggplot(Dat_small, aes(Scenario, MSE))
+mse2 <- p9 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2, position=position_dodge2(padding=0.3)) + 
+  ylab("log(Relative MSE)") 
+
+p10 <- ggplot(Dat_big, aes(Scenario, MSE))
+mse10 <- p10 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA, lwd=0.2, position=position_dodge2(padding=0.3)) + 
+  ylab("log(Relative MSE)") + coord_cartesian(ylim=c(-1.25, 0.3))
 
 #Plot 4: tuning parameter results
 p5 <- ggplot(Dat, aes(Scenario, Lambda))
-lamb <- p5 + geom_boxplot(aes(colour=Method), outlier.shape=NA) + ylab("Lambda Values") +
+lamb <- p5 + geom_boxplot(aes(fill=Method), color="black", outlier.shape=NA) + ylab("Lambda Values") +
   coord_cartesian(ylim=c(0,5))
 
-pdf('predictp.pdf')
-grid.arrange(Brier, AUC, nrow=2)
+pdf('n200.pdf')
+grid.arrange(Brier2, AUC2, mse2, nrow=3)
+dev.off()
+
+pdf('n1000.pdf')
+grid.arrange(Brier10, AUC10, mse10, nrow=3)
 dev.off()
 
 pdf ('split_msep.pdf')
-grid.arrange(emse, umse, nrow=2)
+grid.arrange(emse2, umse2, emse10, umse10, nrow=4)
 dev.off()
 
-pdf('overall_msep.pdf')
-mse
-dev.off()
-
-pdf('lambda.pdf')
-lamb
-dev.off()
