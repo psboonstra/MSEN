@@ -7,7 +7,7 @@
 ##       for publication on May 17-May 18, 2018. This code was further polished and updated by Phil
 ##       Boonstra and posted on GitHub in August 2018, where it underwent further revisions by Phil
 ##       and Elizabeth.
-## Other related files: multistepnet_functions_revised.R, multistepnet_eval.R
+## Other related files: functions.R, eval_sims.R
 ## Purpose: This file simulates data according to 12 scenarios and then performs an elastic net,
 ##          underpenalized elastic net, multi-step elastic net, IPF-Lasso, and sparse group lasso
 ##          on each simulated dataset. 
@@ -22,10 +22,9 @@ library(glmnet);
 library(SGL);
 
 #Set working directory:
-setwd("~/Desktop/Research/Phil Elastic Net/Results 5");
+#setwd("~/Desktop/Research/Phil Elastic Net/Results 5");
 
-#Set source for multistepnet_functions_revised:
-source("~/Desktop/Research/Phil Elastic Net/GitHub Work/multistepnet_functions_revised.R");
+source("functions.R");
 
 # Calculate the number of cores
 no_cores <- detectCores() - 1
@@ -138,4 +137,4 @@ mysgl <- mclapply(bigdesign,dosgl,n_train = n_train, p1 = p1, p2 = p2, n_cv_rep 
 #save(list=c("mynet"), file=)
 #save(list=c("mysgl"), file=)
 
-#To process the results from this code, we would move to multistepnet_eval.R
+#To process the results from this code, we would move to eval_sims.R
