@@ -342,7 +342,6 @@ is.integer0 <- function(x)
 #choose from quelmod in c("ipf_en","en","ms");
 
 subnet <- function(x, quelmod){ 
-  
   if (quelmod=="autozero") {
     penalty_pick = 1
   } else {penalty_pick = x$selected_penalties[quelmod]};

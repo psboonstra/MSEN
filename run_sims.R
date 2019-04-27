@@ -82,6 +82,18 @@ truebeta_myst <- rep(0,30);
 #truebeta_known <- c(rep(0.25, 10),rep(0,10))
 #truebeta_myst <- c(rep(0.05, 5), rep(0,475))
 
+#Scenario 4A
+#truebeta_known <- rep(0.14, 20)
+#truebeta_myst <- rep(0,480)
+
+#Scenario 4B
+#truebeta_known <- rep(0.11, 20)
+#truebeta_myst <- c(0.6, rep(0,479))
+
+#Scenario 4C
+#truebeta_known <- rep(0.13, 20)
+#truebeta_myst <- c(rep(0.05,5),rep(0,475))
+
 p1 = length(truebeta_known); 
 which_set1 = 1:p1; 
 p2 = length(truebeta_myst); 
