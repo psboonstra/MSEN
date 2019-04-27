@@ -22,7 +22,7 @@ library(ipflasso);
 library(SGL);
 library(parallel);
 library(pROC);
-library(ggplot2);
+library(tidyverse);
 
 setwd("~/Desktop/Research/Phil Elastic Net/Data Example 2");
 
@@ -164,6 +164,9 @@ ipfen <- mclapply(mynet_data,subnet, quelmod="ipf_en", mc.preschedule=TRUE,mc.se
 ms <- mclapply(mynet_data,subnet, quelmod="ms", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                mc.cores=no_cores,mc.cleanup=TRUE)
 
+autozero <- mclapply(mynet_data,subnet, quelmod="autozero", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+               mc.cores=no_cores,mc.cleanup=TRUE)
+
 ipflasso <- mclapply(mynet_data,sublasso, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                mc.cores=no_cores,mc.cleanup=TRUE)
 
@@ -182,6 +185,9 @@ ipfenBrier <- mean(unlist(mclapply(ipfen, getassess, quelmod="brier", mc.presche
 
 msBrier <- mean(unlist(mclapply(ms, getassess, quelmod="brier", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                               mc.cores=no_cores,mc.cleanup=TRUE)))
+
+azBrier <- mean(unlist(mclapply(autozero, getassess, quelmod="brier", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+                                mc.cores=no_cores,mc.cleanup=TRUE)))
 
 ipflassoBrier <- mean(unlist(mclapply(ipflasso, getassess, quelmod="brier", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                                     mc.cores=no_cores,mc.cleanup=TRUE)))
@@ -202,6 +208,9 @@ ipfenAUC <- mean(unlist(mclapply(ipfen, getassess, quelmod="auc", mc.preschedule
 msAUC <- mean(unlist(mclapply(ms, getassess, quelmod="auc", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                               mc.cores=no_cores,mc.cleanup=TRUE)))
 
+azAUC <- mean(unlist(mclapply(autozero, getassess, quelmod="auc", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+                              mc.cores=no_cores,mc.cleanup=TRUE)))
+
 ipflassoAUC <- mean(unlist(mclapply(ipflasso, getassess, quelmod="auc", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                               mc.cores=no_cores,mc.cleanup=TRUE)))
 
@@ -211,11 +220,11 @@ sglAUC <- mean(unlist(mclapply(sgl, getassess, quelmod="auc", mc.preschedule=TRU
 glassoAUC <- mean(unlist(mclapply(glasso, getassess, quelmod="auc", mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                               mc.cores=no_cores,mc.cleanup=TRUE)))
 
-myauc <- c(enAUC, ipfenAUC, msAUC, ipflassoAUC, sglAUC, glassoAUC)
-mybrier <- c(enBrier, ipfenBrier, msBrier, ipflassoBrier, sglBrier, glassoBrier)
-methods <- c("EN", "IPFEN", "MS", "IPFLasso", "SGL", "GLASSO")
+myauc <- c(enAUC, ipfenAUC, azAUC, msAUC, ipflassoAUC, sglAUC, glassoAUC)
+mybrier <- c(enBrier, ipfenBrier, azBrier, msBrier, ipflassoBrier, sglBrier, glassoBrier)
+methods <- c("EN", "IPFEN", "Auto-Zero", "MS", "IPFLasso", "SGL", "GLASSO")
 Performance <- data.frame("Method" = methods, "AUC" = myauc, "Brier" = mybrier)
-save(Performance, file = "Performance.Rda")
+save(Performance, file = "~/Desktop/Research/Phil Elastic Net/Stat Med Revision Simulations/Performance.Rda")
 
 #We will obtain the betas
 enbeta <- mclapply(en, getbeta, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
@@ -226,6 +235,9 @@ ipfenbeta <- mclapply(ipfen, getbeta, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.si
 
 msbeta <- mclapply(ms, getbeta, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                               mc.cores=no_cores,mc.cleanup=TRUE)
+
+azbeta <- mclapply(autozero, getbeta, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
+                   mc.cores=no_cores,mc.cleanup=TRUE)
 
 ipflassobeta <- mclapply(ipflasso, getbeta, mc.preschedule=TRUE,mc.set.seed=TRUE,mc.silent=TRUE,
                                     mc.cores=no_cores,mc.cleanup=TRUE)
@@ -255,6 +267,11 @@ for (i in 1:22){
   Method <- rep('IPF-Lasso', 25)
   DatIPFL <- data.frame("Variable" = Variable, "Method" = Method, "Effect" = IPFLBeta)
   
+  AZBeta <- unlist(sapply(azbeta, "[[", i))
+  Variable <- rep(i,25)
+  Method <- rep('Auto-Zero',25) 
+  DatAZ <- data.frame("Variable" = Variable, "Method" = Method, "Effect" = AZBeta)
+  
   MSBeta <- unlist(sapply(msbeta, "[[", i))
   Variable <- rep(i,25)
   Method <- rep('MS',25) 
@@ -270,10 +287,10 @@ for (i in 1:22){
   Method <- rep('SGL',25) 
   DatSGL <- data.frame("Variable" = Variable, "Method" = Method, "Effect" = SGLBeta)
   
-  Dat <- rbind(Dat, DatEN, DatIPFEN, DatIPFL, DatMS, DatSGL, DatGLAS)
+  Dat <- rbind(Dat, DatEN, DatIPFEN, DatIPFL, DatAZ, DatMS, DatSGL, DatGLAS)
 }
 
-original <- c(rep(0,1650), rep(1,1650))
+original <- c(rep(0,1925), rep(1,1925))
 Dat <- cbind(Dat, original)
 names(Dat) <- c("Variable", "Method", "Effect","Category")
 
@@ -311,7 +328,7 @@ Dat[,"Variable"] = factor(Dat[,"Variable"],
 
 #Dat should be a matrix with 4 columns (Variable, Method, Effect, and Category) and 3300
 #observations: 22 betas x 25 imputations x 6 methods = 3300
-save(Dat,file="RealData_Betas.Rda")
+save(Dat,file="~/Desktop/Research/Phil Elastic Net/Stat Med Revision Simulations/RealData_Betas.Rda")
 load("RealData_Betas.Rda")
 
 aggregate(Dat$Effect, list(Dat$Variable, Dat$Method), mean)
