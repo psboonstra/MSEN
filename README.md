@@ -1,16 +1,8 @@
 # MSEN
 
-### Current Suggested Citation
-
-In progress
-
-DOI for this repository:
-
-In progress
-
 ## Executive Summary
 
-This repository contains code for conducting the simulation study in Chase and Boonstra (2019). 
+This repository contains code for conducting the simulation study in [Chase and Boonstra (2019)](https://onlinelibrary.wiley.com/doi/full/10.1002/sim.8313). 
 
 ## Further details
 
